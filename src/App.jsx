@@ -145,12 +145,10 @@ function LoginPage({ onLogin }) {
     setError("");
     setLoading(true);
     try {
+      // RPC로 사번 확인 (RLS 우회 — SECURITY DEFINER)
       const { data, error: dbErr } = await supabase
-        .from("employees")
-        .select("name, emp_no, status")
-        .eq("emp_no", empId.trim().toUpperCase())
-        .single();
-      if (dbErr || !data) { setError("등록되지 않은 사번입니다. 관리자에게 문의하세요."); return; }
+        .rpc("check_field_employee", { p_emp_no: empId.trim().toUpperCase() });
+      if (dbErr || !data || !data.name) { setError("등록되지 않은 사번입니다. 관리자에게 문의하세요."); return; }
       if (data.status !== "재직") { setError("재직 중인 직원이 아닙니다. 관리자에게 문의하세요."); return; }
       localStorage.setItem(STORAGE_EMP_ID_KEY, empId.trim().toUpperCase());
       setEmpName(data.name);
