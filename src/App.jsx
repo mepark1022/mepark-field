@@ -19,7 +19,7 @@ const C = {
 };
 
 // ─── 상수 ────────────────────────────────────────────────────────────────
-const APP_VERSION = "v8.3";
+const APP_VERSION = "v1.0";
 const STORAGE_EMP_ID_KEY = "mepark_field_emp_id";
 const FONT = "'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif";
 
@@ -207,10 +207,10 @@ function LoginPage({ onLogin }) {
           display: "flex", alignItems: "center", justifyContent: "center",
           margin: "0 auto 16px", boxShadow: `0 8px 32px ${C.gold}40`,
         }}>
-          <span style={{ fontSize: 40 }}>🅿️</span>
+          <span style={{ fontSize: 36, fontWeight: 900, color: C.navy }}>🎫</span>
         </div>
-        <div style={{ color: C.white, fontSize: 26, fontWeight: 900, letterSpacing: "-0.5px" }}>ME.PARK</div>
-        <div style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, marginTop: 4 }}>현장 크루 마감보고 {APP_VERSION}</div>
+        <div style={{ color: C.white, fontSize: 26, fontWeight: 900, letterSpacing: "-0.5px" }}>미팍티켓</div>
+        <div style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, marginTop: 4 }}>현장크루 마감보고 앱 {APP_VERSION}</div>
       </div>
 
       <div style={{
@@ -222,7 +222,7 @@ function LoginPage({ onLogin }) {
           <>
             <div style={{ marginBottom: 24 }}>
               <div style={{ fontSize: 20, fontWeight: 800, color: C.dark, marginBottom: 6 }}>사번 입력</div>
-              <div style={{ fontSize: 13, color: C.gray }}>ME.PARK 사번을 입력해주세요</div>
+              <div style={{ fontSize: 13, color: C.gray }}>사번을 입력해주세요</div>
             </div>
             <div style={{ marginBottom: 16 }}>
               <label style={{ fontSize: 12, fontWeight: 700, color: C.gray, display: "block", marginBottom: 6 }}>사번 (Employee ID)</label>
@@ -662,7 +662,7 @@ function HomePage({ employee, onLogout, onNavigate }) {
         <div style={{ padding: "16px 20px 20px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
-              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", marginBottom: 4 }}>🅿️ ME.PARK 현장앱</div>
+              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", marginBottom: 4 }}>🎫 미팍티켓 현장앱</div>
               <div style={{ fontSize: 20, fontWeight: 900 }}>{employee?.name || "크루"}님, 안녕하세요!</div>
               <div style={{ fontSize: 13, color: "rgba(255,255,255,0.65)", marginTop: 4 }}>
                 {getSiteName(siteCode)} · {todayLabel}
@@ -892,7 +892,7 @@ export default function App() {
         alignItems: "center", justifyContent: "center", gap: 20,
         fontFamily: FONT,
       }}>
-        <div style={{ fontSize: 48 }}>🅿️</div>
+        <div style={{ fontSize: 48 }}>🎫</div>
         <Spinner size={40} color={C.gold} />
         <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 14 }}>로딩 중...</div>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
