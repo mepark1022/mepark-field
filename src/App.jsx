@@ -334,6 +334,7 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
         valet_amount: editReport.valet_amount || 0,
         staff_count: editReport.staff_count || 0,
         memo: editReport.memo || "",
+        images: editReport.images || [],
         payList: PAYMENT_TYPES.map(pt => {
           const existing = (editPayments || []).find(p => p.payment_type === pt.key);
           return { payment_type: pt.key, count: existing?.count || 0, amount: existing?.amount || 0 };
@@ -341,18 +342,54 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
       };
     }
     return {
-      valet_count: 0, valet_amount: 0, staff_count: 0, memo: "",
+      valet_count: 0, valet_amount: 0, staff_count: 0, memo: "", images: [],
       payList: PAYMENT_TYPES.map(pt => ({ payment_type: pt.key, count: 0, amount: 0 })),
     };
   });
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [uploading, setUploading] = useState(false);
 
   const payTotal = useMemo(() => form.payList.reduce((s, p) => s + toNum(p.amount), 0), [form.payList]);
 
   function updatePay(idx, field, val) {
     setForm(f => ({ ...f, payList: f.payList.map((p, i) => i === idx ? { ...p, [field]: val } : p) }));
+  }
+
+  // 사진 업로드
+  async function handleImageUpload(e) {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    if (form.images.length + files.length > 5) {
+      setError("사진은 최대 5장까지 첨부할 수 있습니다.");
+      return;
+    }
+    setUploading(true);
+    setError("");
+    try {
+      const newImages = [];
+      for (const file of files) {
+        if (file.size > 10 * 1024 * 1024) { setError("파일 크기는 10MB 이하만 가능합니다."); continue; }
+        const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+        const path = `${siteCode}/${today}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+        const { data, error: upErr } = await supabase.storage.from("daily-report-images").upload(path, file);
+        if (upErr) { console.error("업로드 실패:", upErr); setError("사진 업로드에 실패했습니다."); continue; }
+        const { data: urlData } = supabase.storage.from("daily-report-images").getPublicUrl(path);
+        newImages.push({ path, url: urlData.publicUrl, name: file.name });
+      }
+      setForm(f => ({ ...f, images: [...f.images, ...newImages] }));
+    } catch (err) {
+      console.error("이미지 업로드 에러:", err);
+      setError("사진 업로드 중 오류가 발생했습니다.");
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
+  }
+
+  function removeImage(idx) {
+    setForm(f => ({ ...f, images: f.images.filter((_, i) => i !== idx) }));
   }
 
   async function handleSubmit() {
@@ -375,7 +412,7 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
         valet_amount: toNum(form.valet_amount),
         staff_count: toNum(form.staff_count),
         memo: form.memo?.trim() || null,
-        images: editReport?.images || [],
+        images: form.images || [],
         reporter_id: employee?.id || null,
         status: "submitted",
       };
@@ -531,6 +568,72 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
               fontSize: 12, color: C.orange, fontWeight: 700,
             }}>
               ⚠️ 결제 합계({fmt(payTotal)}원)와 발렛비({fmt(form.valet_amount)}원)가 일치하지 않습니다.
+            </div>
+          )}
+        </div>
+
+        {/* 사진 첨부 (카드영수증 등) */}
+        <div style={sectionStyle}>
+          {sectionTitle("📷", "마감 사진 첨부")}
+          <div style={{ fontSize: 12, color: C.gray, marginBottom: 12 }}>
+            카드영수증, 마감정산서 등을 촬영해주세요 (최대 5장)
+          </div>
+
+          {/* 업로드된 이미지 미리보기 */}
+          {form.images.length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
+              {form.images.map((img, idx) => (
+                <div key={idx} style={{ position: "relative", borderRadius: 12, overflow: "hidden", aspectRatio: "1", background: C.lightGray }}>
+                  <img
+                    src={img.url} alt={img.name || "사진"}
+                    style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                  />
+                  <button onClick={() => removeImage(idx)}
+                    style={{
+                      position: "absolute", top: 4, right: 4,
+                      width: 24, height: 24, borderRadius: "50%",
+                      background: "rgba(0,0,0,0.6)", color: C.white,
+                      border: "none", fontSize: 14, fontWeight: 700,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* 업로드 버튼 */}
+          {form.images.length < 5 && (
+            <div>
+              <input
+                type="file" accept="image/*" multiple capture="environment"
+                id="photo-upload"
+                onChange={handleImageUpload}
+                style={{ display: "none" }}
+              />
+              <button
+                onClick={() => document.getElementById("photo-upload").click()}
+                disabled={uploading}
+                style={{
+                  width: "100%", padding: "14px",
+                  background: uploading ? C.lightGray : C.white,
+                  border: `2px dashed ${uploading ? C.border : C.navy}`,
+                  borderRadius: 14, fontSize: 14, fontWeight: 700,
+                  color: uploading ? C.gray : C.navy, fontFamily: FONT,
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                }}
+              >
+                {uploading ? (
+                  <><Spinner size={18} color={C.navy} /> 업로드 중...</>
+                ) : (
+                  <>📷 {form.images.length > 0 ? "사진 추가" : "사진 촬영 / 선택"}</>
+                )}
+              </button>
+            </div>
+          )}
+
+          {form.images.length > 0 && (
+            <div style={{ marginTop: 8, fontSize: 12, color: C.gray, textAlign: "right" }}>
+              {form.images.length}/5장 첨부됨
             </div>
           )}
         </div>
@@ -723,6 +826,18 @@ function HomePage({ employee, onLogout, onNavigate }) {
                           </span>
                         );
                       })}
+                    </div>
+                  )}
+
+                  {todayReport.images && todayReport.images.length > 0 && (
+                    <div style={{ display: "flex", gap: 6, marginBottom: 14, overflowX: "auto" }}>
+                      {todayReport.images.map((img, idx) => (
+                        <img key={idx} src={img.url} alt="첨부"
+                          style={{ width: 56, height: 56, borderRadius: 10, objectFit: "cover", flexShrink: 0 }} />
+                      ))}
+                      <span style={{ fontSize: 11, color: C.gray, alignSelf: "center", flexShrink: 0, marginLeft: 4 }}>
+                        📷 {todayReport.images.length}장
+                      </span>
                     </div>
                   )}
 
