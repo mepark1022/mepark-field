@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F5B731"/>
+      <stop offset="100%" stop-color="#d4a020"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded square background -->
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#bg)"/>
+  <!-- Ticket shape -->
+  <g transform="translate(64,64)">
+    <!-- Ticket body -->
+    <rect x="-40" y="-22" width="80" height="44" rx="6" fill="#1428A0"/>
+    <!-- Ticket notches -->
+    <circle cx="-40" cy="0" r="7" fill="#F5B731"/>
+    <circle cx="40" cy="0" r="7" fill="#F5B731"/>
+    <!-- Dashed line -->
+    <line x1="-20" y1="-22" x2="-20" y2="22" stroke="#F5B731" stroke-width="2" stroke-dasharray="4,3" opacity="0.6"/>
+    <!-- P text -->
+    <text x="10" y="8" font-family="Arial,sans-serif" font-size="28" font-weight="900" fill="white" text-anchor="middle">P</text>
+    <!-- Star -->
+    <text x="-30" y="6" font-size="14" fill="#F5B731" text-anchor="middle">★</text>
+  </g>
+</svg>

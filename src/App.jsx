@@ -763,7 +763,7 @@ function HomePage({ employee, onLogout, onNavigate }) {
         <div style={{ padding: "16px 20px 20px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
-              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", marginBottom: 4 }}>🎫 미팍티켓 현장앱</div>
+              <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", marginBottom: 4 }}>🎫 미팍티켓 마감APP</div>
               <div style={{ fontSize: 20, fontWeight: 900 }}>{employee?.name || "크루"}님, 안녕하세요!</div>
               <div style={{ fontSize: 13, color: "rgba(255,255,255,0.65)", marginTop: 4 }}>
                 {getSiteName(siteCode)} · {todayLabel}
