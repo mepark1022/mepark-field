@@ -147,11 +147,11 @@ function LoginPage({ onLogin }) {
     try {
       const { data, error: dbErr } = await supabase
         .from("employees")
-        .select("name, emp_id, status")
-        .eq("emp_id", empId.trim().toUpperCase())
+        .select("name, emp_no, status")
+        .eq("emp_no", empId.trim().toUpperCase())
         .single();
       if (dbErr || !data) { setError("등록되지 않은 사번입니다. 관리자에게 문의하세요."); return; }
-      if (data.status !== "active") { setError("재직 중인 직원이 아닙니다. 관리자에게 문의하세요."); return; }
+      if (data.status !== "재직") { setError("재직 중인 직원이 아닙니다. 관리자에게 문의하세요."); return; }
       localStorage.setItem(STORAGE_EMP_ID_KEY, empId.trim().toUpperCase());
       setEmpName(data.name);
       setStep("pin");
@@ -845,11 +845,12 @@ export default function App() {
     try {
       const { data, error } = await supabase
         .from("employees")
-        .select("id, name, emp_id, site_code, work_type, status")
+        .select("id, name, emp_no, site_code_1, work_type, status")
         .eq("auth_user_id", authUserId)
         .single();
       if (error || !data) throw new Error("직원 정보를 찾을 수 없습니다.");
-      setEmployee(data);
+      // DB 컬럼명 → 앱 내부 통일명으로 매핑
+      setEmployee({ ...data, emp_id: data.emp_no, site_code: data.site_code_1 });
       setAuthState("home");
     } catch (e) {
       console.error("직원 정보 로드 실패:", e);
