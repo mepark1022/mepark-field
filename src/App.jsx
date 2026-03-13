@@ -572,6 +572,10 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
   }
 
   function handleConfirmOpen() {
+    if (!form.selectedStaff || form.selectedStaff.length === 0) {
+      setError("근무 직원을 1명 이상 선택해주세요.");
+      return;
+    }
     if (autoValetCount <= 0 && payTotal <= 0 && !form.memo?.trim()) {
       setError("최소 1개 이상의 항목을 입력해주세요.");
       return;
