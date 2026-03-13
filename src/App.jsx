@@ -811,15 +811,9 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
                   <div style={{ fontSize: 13, fontWeight: 800, color: C.dark, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
                     {pt?.icon} {pt?.label}
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1.8fr", gap: 8 }}>
-                    <div>
-                      <label style={{ ...labelStyle, fontSize: 11 }}>건수</label>
-                      <NumInput value={p.count} onChange={v => updatePay(idx, "count", v)} suffix="건" />
-                    </div>
-                    <div>
-                      <label style={{ ...labelStyle, fontSize: 11 }}>금액</label>
-                      <NumInput value={p.amount} onChange={v => updatePay(idx, "amount", v)} suffix="원" />
-                    </div>
+                  <div>
+                    <label style={{ ...labelStyle, fontSize: 11 }}>금액</label>
+                    <NumInput value={p.amount} onChange={v => updatePay(idx, "amount", v)} suffix="원" />
                   </div>
                 </div>
               );
