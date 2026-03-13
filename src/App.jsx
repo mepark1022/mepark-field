@@ -422,23 +422,10 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
     loadSiteEmployees();
   }, [siteCode]);
 
-  // 본사(V000) 직원 목록 로드 (슈퍼어드민 제외)
+  // 본사(V000) 직원 목록 로드 (대표 제외)
   useEffect(() => {
     async function loadHqEmployees() {
       try {
-        // 슈퍼어드민 emp_no + name 목록 조회
-        const { data: superAdmins } = await supabase
-          .from("profiles")
-          .select("emp_no, name")
-          .eq("role", "super_admin");
-        const excludeNos = new Set((superAdmins || []).map(p => p.emp_no).filter(Boolean));
-        const excludeNames = new Set((superAdmins || []).map(p => p.name).filter(Boolean));
-        // 현재 로그인 사용자가 슈퍼어드민이면 본인도 제외
-        if (employee?.role === "super_admin") {
-          if (employee?.emp_no) excludeNos.add(employee.emp_no);
-          if (employee?.name) excludeNames.add(employee.name);
-        }
-
         const { data } = await supabase
           .from("employees")
           .select("id, emp_no, name, position")
@@ -446,10 +433,8 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
           .in("status", ["active", "재직"])
           .order("emp_no");
         if (data) {
-          const filtered = data.filter(e =>
-            !excludeNos.has(e.emp_no) && !excludeNames.has(e.name)
-          );
-          setHqEmployees(filtered);
+          // 직위가 "대표"인 사람 제외
+          setHqEmployees(data.filter(e => e.position !== "대표"));
         }
       } catch (e) { console.error("본사 직원 로드 실패:", e); }
     }
