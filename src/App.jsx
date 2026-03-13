@@ -426,12 +426,13 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
   useEffect(() => {
     async function loadHqEmployees() {
       try {
-        // 슈퍼어드민 emp_no 목록 조회
+        // 슈퍼어드민 emp_no + name 목록 조회
         const { data: superAdmins } = await supabase
           .from("profiles")
-          .select("emp_no")
+          .select("emp_no, name")
           .eq("role", "super_admin");
         const excludeNos = (superAdmins || []).map(p => p.emp_no).filter(Boolean);
+        const excludeNames = (superAdmins || []).map(p => p.name).filter(Boolean);
 
         const { data } = await supabase
           .from("employees")
@@ -440,9 +441,9 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
           .in("status", ["active", "재직"])
           .order("emp_no");
         if (data) {
-          const filtered = excludeNos.length > 0
-            ? data.filter(e => !excludeNos.includes(e.emp_no))
-            : data;
+          const filtered = data.filter(e =>
+            !excludeNos.includes(e.emp_no) && !excludeNames.includes(e.name)
+          );
           setHqEmployees(filtered);
         }
       } catch (e) { console.error("본사 직원 로드 실패:", e); }
