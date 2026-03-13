@@ -462,9 +462,25 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
   const [uploading, setUploading] = useState(false);
 
   const payTotal = useMemo(() => form.payList.reduce((s, p) => s + toNum(p.amount), 0), [form.payList]);
+  // 건수 합산 (기타 제외) — valet_count 자동계산
+  const autoValetCount = useMemo(() =>
+    form.payList.filter(p => p.payment_type !== "etc").reduce((s, p) => s + toNum(p.count), 0),
+    [form.payList]
+  );
 
   function updatePay(idx, field, val) {
-    setForm(f => ({ ...f, payList: f.payList.map((p, i) => i === idx ? { ...p, [field]: val } : p) }));
+    setForm(f => {
+      const updated = f.payList.map((p, i) => {
+        if (i !== idx) return p;
+        const newP = { ...p, [field]: val };
+        // 건수 변경 시 기타 제외하고 단가 있으면 금액 자동계산
+        if (field === "count" && p.payment_type !== "etc" && valetRate > 0) {
+          newP.amount = toNum(val) * valetRate;
+        }
+        return newP;
+      });
+      return { ...f, payList: updated };
+    });
   }
 
   // 사진 업로드
@@ -512,13 +528,9 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
   }
 
   async function handleSubmit() {
-    if (toNum(form.valet_count) <= 0 && toNum(form.valet_amount) <= 0 && payTotal <= 0 && !form.memo?.trim()) {
+    if (autoValetCount <= 0 && payTotal <= 0 && !form.memo?.trim()) {
       setError("최소 1개 이상의 항목을 입력해주세요.");
       return;
-    }
-    const valetAmt = toNum(form.valet_amount);
-    if (payTotal > 0 && valetAmt > 0 && Math.abs(payTotal - valetAmt) > 100) {
-      if (!window.confirm(`결제수단 합계(${fmt(payTotal)}원)와 발렛비(${fmt(valetAmt)}원)가 일치하지 않습니다.\n그래도 저장하시겠습니까?`)) return;
     }
     setSaving(true);
     setError("");
@@ -527,8 +539,8 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
       const reportPayload = {
         report_date: today,
         site_code: siteCode,
-        valet_count: toNum(form.valet_count),
-        valet_amount: toNum(form.valet_amount),
+        valet_count: autoValetCount,
+        valet_amount: payTotal,
         staff_count: toNum(form.staff_count),
         selected_staff: form.selectedStaff || [],
         memo: form.memo?.trim() || null,
@@ -735,64 +747,42 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
             </>
           )}
 
-          {/* 발렛 처리 건수 */}
-          <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1.5px solid ${C.border}` }}>
-            <label style={labelStyle}>발렛 처리 (건)</label>
-            <NumInput value={form.valet_count} onChange={v => setForm(f => ({ ...f, valet_count: v }))} suffix="건" />
-          </div>
         </div>
 
         {/* 발렛비 */}
         <div style={sectionStyle}>
           {sectionTitle("💰", "발렛비")}
 
-          {/* 단가 표시 (site_details에서 로드) */}
-          {valetRate > 0 && (
+          {/* 단가 표시 */}
+          {valetRate > 0 ? (
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
-              background: "#EEF2FF", borderRadius: 10, padding: "8px 14px", marginBottom: 12 }}>
+              background: "#EEF2FF", borderRadius: 10, padding: "10px 14px", marginBottom: 12 }}>
               <span style={{ fontSize: 12, color: C.navy, fontWeight: 700 }}>💡 설정 단가</span>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 14, fontWeight: 900, color: C.navy, fontFamily: "monospace" }}>{fmt(valetRate)}원/건</span>
-                <button
-                  onClick={() => {
-                    const cnt = toNum(form.valet_count);
-                    if (cnt > 0) setForm(f => ({ ...f, valet_amount: cnt * valetRate }));
-                  }}
-                  style={{ fontSize: 11, fontWeight: 700, color: C.white, background: C.navy,
-                    border: "none", borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}>
-                  자동계산
-                </button>
-              </div>
+              <span style={{ fontSize: 15, fontWeight: 900, color: C.navy, fontFamily: "monospace" }}>{fmt(valetRate)}원/건</span>
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: C.gray, marginBottom: 12, padding: "8px 12px",
+              background: "#fff7ed", borderRadius: 10, border: `1px solid ${C.orange}40` }}>
+              ⚠️ ERP 사업장관리에서 발렛 단가를 먼저 설정해주세요
             </div>
           )}
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1.8fr", gap: 10, marginBottom: 10 }}>
+          {/* 발렛비 총액 자동표시 */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "12px 16px", background: autoValetCount > 0 ? "#f0f2ff" : C.lightGray,
+            borderRadius: 12, border: `1.5px solid ${autoValetCount > 0 ? C.navy + "40" : C.border}` }}>
             <div>
-              <label style={labelStyle}>건수</label>
-              <NumInput value={form.valet_count}
-                onChange={v => {
-                  setForm(f => {
-                    const newCount = toNum(v);
-                    const newAmount = valetRate > 0 ? newCount * valetRate : f.valet_amount;
-                    return { ...f, valet_count: v, valet_amount: newAmount };
-                  });
-                }}
-                suffix="건" />
+              <div style={{ fontSize: 11, color: C.gray, fontWeight: 600 }}>총 건수</div>
+              <div style={{ fontSize: 18, fontWeight: 900, color: C.navy, fontFamily: "monospace" }}>{autoValetCount}건</div>
             </div>
-            <div>
-              <label style={labelStyle}>발렛비 총액</label>
-              <NumInput value={form.valet_amount}
-                onChange={v => setForm(f => ({ ...f, valet_amount: v }))}
-                suffix="원" />
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 11, color: C.gray, fontWeight: 600 }}>발렛비 합계</div>
+              <div style={{ fontSize: 20, fontWeight: 900, color: C.navy, fontFamily: "monospace" }}>{fmt(payTotal)}원</div>
             </div>
           </div>
-
-          {/* 건당 단가 표시 */}
-          {toNum(form.valet_count) > 0 && toNum(form.valet_amount) > 0 && (
-            <div style={{ fontSize: 12, color: C.gray, textAlign: "right", marginTop: 4 }}>
-              건당 <strong style={{ color: C.navy }}>{fmt(Math.round(toNum(form.valet_amount) / toNum(form.valet_count)))}</strong>원
-            </div>
-          )}
+          <div style={{ fontSize: 11, color: C.gray, marginTop: 6, textAlign: "right" }}>
+            ※ 아래 결제수단별 건수 입력 시 자동 계산됩니다
+          </div>
         </div>
 
         {/* 결제 수단 */}
@@ -801,20 +791,48 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
           <div style={{ display: "grid", gap: 12 }}>
             {form.payList.map((p, idx) => {
               const pt = PAYMENT_TYPES.find(t => t.key === p.payment_type);
+              const isEtc = p.payment_type === "etc";
+              const hasAmount = toNum(p.amount) > 0;
               return (
                 <div key={p.payment_type} style={{
-                  border: `1.5px solid ${toNum(p.amount) > 0 ? C.navy + "40" : C.border}`,
+                  border: `1.5px solid ${hasAmount ? C.navy + "40" : C.border}`,
                   borderRadius: 14, padding: "14px",
-                  background: toNum(p.amount) > 0 ? "#f0f2ff" : C.white,
+                  background: hasAmount ? "#f0f2ff" : C.white,
                   transition: "all 0.2s",
                 }}>
                   <div style={{ fontSize: 13, fontWeight: 800, color: C.dark, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
                     {pt?.icon} {pt?.label}
+                    {!isEtc && valetRate > 0 && (
+                      <span style={{ fontSize: 10, color: C.gray, fontWeight: 500, marginLeft: "auto" }}>
+                        건당 {fmt(valetRate)}원
+                      </span>
+                    )}
                   </div>
-                  <div>
-                    <label style={{ ...labelStyle, fontSize: 11 }}>금액</label>
-                    <NumInput value={p.amount} onChange={v => updatePay(idx, "amount", v)} suffix="원" />
-                  </div>
+                  {isEtc ? (
+                    /* 기타: 금액 수기입력 */
+                    <div>
+                      <label style={{ ...labelStyle, fontSize: 11 }}>금액</label>
+                      <NumInput value={p.amount} onChange={v => updatePay(idx, "amount", v)} suffix="원" />
+                    </div>
+                  ) : (
+                    /* 현금/카드/계좌이체: 건수 입력 → 금액 자동계산 */
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1.8fr", gap: 8 }}>
+                      <div>
+                        <label style={{ ...labelStyle, fontSize: 11 }}>건수</label>
+                        <NumInput value={p.count} onChange={v => updatePay(idx, "count", v)} suffix="건" />
+                      </div>
+                      <div>
+                        <label style={{ ...labelStyle, fontSize: 11 }}>금액{valetRate > 0 ? " (자동)" : ""}</label>
+                        <NumInput value={p.amount} onChange={v => updatePay(idx, "amount", v)} suffix="원" />
+                      </div>
+                    </div>
+                  )}
+                  {/* 건수 있을 때 건당 계산 표시 */}
+                  {!isEtc && toNum(p.count) > 0 && toNum(p.amount) > 0 && (
+                    <div style={{ fontSize: 11, color: C.gray, textAlign: "right", marginTop: 4 }}>
+                      {toNum(p.count)}건 × {fmt(valetRate > 0 ? valetRate : Math.round(toNum(p.amount) / toNum(p.count)))}원
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -827,15 +845,6 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
             <span style={{ color: "rgba(255,255,255,0.8)", fontSize: 13, fontWeight: 700 }}>결제 합계</span>
             <span style={{ color: C.gold, fontSize: 20, fontWeight: 900, fontFamily: "monospace" }}>{fmt(payTotal)}원</span>
           </div>
-          {payTotal > 0 && toNum(form.valet_amount) > 0 && Math.abs(payTotal - toNum(form.valet_amount)) > 100 && (
-            <div style={{
-              marginTop: 10, padding: "10px 14px", background: "#fff7ed",
-              border: `1.5px solid ${C.orange}40`, borderRadius: 12,
-              fontSize: 12, color: C.orange, fontWeight: 700,
-            }}>
-              ⚠️ 결제 합계({fmt(payTotal)}원)와 발렛비({fmt(form.valet_amount)}원)가 일치하지 않습니다.
-            </div>
-          )}
         </div>
 
         {/* 사진 첨부 (카드영수증 등) */}
