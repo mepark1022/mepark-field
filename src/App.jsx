@@ -357,7 +357,10 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
   const DRAFT_KEY = `mepark_field_draft_${siteCode}_${today}`;
 
   const [siteEmployees, setSiteEmployees] = useState([]);
+  const [hqEmployees, setHqEmployees] = useState([]);
   const [loadingStaff, setLoadingStaff] = useState(true);
+  const [dutyTab, setDutyTab] = useState("site"); // "site" | "hq" | "part"
+  const [partInput, setPartInput] = useState(""); // 알바 이름 입력
   const [draftRestored, setDraftRestored] = useState(false);
   const [valetRate, setValetRate] = useState(0); // 사업장 발렛 단가
 
@@ -417,6 +420,22 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
     }
     loadSiteEmployees();
   }, [siteCode]);
+
+  // 본사(V000) 직원 목록 로드
+  useEffect(() => {
+    async function loadHqEmployees() {
+      try {
+        const { data } = await supabase
+          .from("employees")
+          .select("id, emp_no, name, position")
+          .eq("site_code_1", "V000")
+          .in("status", ["active", "재직"])
+          .order("emp_no");
+        if (data) setHqEmployees(data);
+      } catch (e) { console.error("본사 직원 로드 실패:", e); }
+    }
+    loadHqEmployees();
+  }, []);
 
   // 사업장 발렛 단가 로드
   useEffect(() => {
@@ -677,79 +696,90 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
           </div>
         </div>
 
-        {/* 근무 현황 — 직원 선택 */}
+        {/* 근무 현황 */}
         <div style={sectionStyle}>
           {sectionTitle("👥", "근무 현황")}
+
+          {/* 총 인원 표시 */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: C.gray }}>오늘 근무한 직원을 선택하세요</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              {DUTY_TYPES.map(d => {
+                const cnt = form.selectedStaff.filter(s => s.duty === d.key).length;
+                return cnt > 0 ? (
+                  <span key={d.key} style={{ fontSize: 11, fontWeight: 800, color: d.color,
+                    background: d.bg, padding: "3px 9px", borderRadius: 20 }}>
+                    {d.label} {cnt}명
+                  </span>
+                ) : null;
+              })}
+            </div>
             <div style={{ fontSize: 14, fontWeight: 900, color: C.navy, background: "#e8ebf5", padding: "4px 12px", borderRadius: 20 }}>
-              {form.selectedStaff.length}명
+              총 {form.selectedStaff.length}명
             </div>
           </div>
 
-          {loadingStaff ? (
-            <div style={{ textAlign: "center", padding: "16px 0" }}>
-              <Spinner size={24} color={C.navy} />
-              <div style={{ fontSize: 12, color: C.gray, marginTop: 8 }}>직원 목록 로딩 중...</div>
-            </div>
-          ) : siteEmployees.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "16px 0", color: C.gray, fontSize: 13 }}>
-              이 사업장에 등록된 직원이 없습니다.
-              <div style={{ marginTop: 10 }}>
-                <label style={labelStyle}>직접 입력</label>
-                <NumInput value={form.staff_count} onChange={v => setForm(f => ({ ...f, staff_count: v }))} suffix="명" />
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* 전체 선택 / 초기화 */}
-              <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-                <button onClick={() => {
-                  const allStaff = siteEmployees.map(e => ({ emp_no: e.emp_no, name: e.name, duty: "site" }));
-                  setForm(f => ({ ...f, selectedStaff: allStaff, staff_count: allStaff.length }));
-                }} style={{
-                  flex: 1, padding: "8px", border: `1.5px solid ${C.navy}`, borderRadius: 10,
-                  background: form.selectedStaff.length === siteEmployees.length ? C.navy : C.white,
-                  color: form.selectedStaff.length === siteEmployees.length ? C.white : C.navy,
-                  fontSize: 12, fontWeight: 700, fontFamily: FONT,
-                }}>
-                  ✅ 전체 선택
-                </button>
-                <button onClick={() => setForm(f => ({ ...f, selectedStaff: [], staff_count: 0 }))} style={{
-                  flex: 1, padding: "8px", border: `1.5px solid ${C.border}`, borderRadius: 10,
-                  background: C.white, color: C.gray,
-                  fontSize: 12, fontWeight: 700, fontFamily: FONT,
-                }}>
-                  ↩️ 초기화
-                </button>
-              </div>
-
-              {/* 구분 범례 */}
-              <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
-                {DUTY_TYPES.map(d => (
-                  <span key={d.key} style={{ fontSize: 11, fontWeight: 700, color: d.color,
-                    background: d.bg, padding: "3px 8px", borderRadius: 20 }}>
-                    {d.label}
+          {/* 탭 */}
+          <div style={{ display: "flex", background: "#f0f2f7", borderRadius: 12, padding: 4, marginBottom: 14, gap: 4 }}>
+            {DUTY_TYPES.map(d => (
+              <button key={d.key} onClick={() => setDutyTab(d.key)} style={{
+                flex: 1, padding: "8px 4px", borderRadius: 9, border: "none",
+                background: dutyTab === d.key ? C.white : "transparent",
+                color: dutyTab === d.key ? d.color : C.gray,
+                fontSize: 12, fontWeight: 800, fontFamily: FONT,
+                boxShadow: dutyTab === d.key ? "0 2px 8px rgba(0,0,0,0.08)" : "none",
+                transition: "all 0.15s",
+              }}>
+                {d.label}
+                {form.selectedStaff.filter(s => s.duty === d.key).length > 0 && (
+                  <span style={{ marginLeft: 4, background: d.color, color: C.white,
+                    fontSize: 10, borderRadius: 10, padding: "1px 5px" }}>
+                    {form.selectedStaff.filter(s => s.duty === d.key).length}
                   </span>
-                ))}
-                <span style={{ fontSize: 11, color: C.gray, alignSelf: "center" }}>— 선택 후 구분을 설정하세요</span>
-              </div>
+                )}
+              </button>
+            ))}
+          </div>
 
-              {/* 직원 리스트 */}
-              <div style={{ display: "grid", gap: 8, maxHeight: 320, overflowY: "auto", padding: "2px 0" }}>
-                {siteEmployees.map(emp => {
-                  const sel = form.selectedStaff.find(s => s.emp_no === emp.emp_no);
-                  const isSelected = !!sel;
-                  const duty = sel?.duty || "site";
-                  const dutyInfo = DUTY_TYPES.find(d => d.key === duty);
-                  return (
-                    <div key={emp.emp_no} style={{
-                      borderRadius: 14, border: `1.5px solid ${isSelected ? (dutyInfo?.color + "60") : C.border}`,
-                      background: isSelected ? dutyInfo?.bg : C.white,
-                      overflow: "hidden", transition: "all 0.15s",
-                    }}>
-                      {/* 직원 행 — 탭하면 선택/해제 */}
-                      <button onClick={() => {
+          {/* ── 해당매장 탭 ── */}
+          {dutyTab === "site" && (
+            loadingStaff ? (
+              <div style={{ textAlign: "center", padding: "16px 0" }}>
+                <Spinner size={24} color={C.navy} />
+                <div style={{ fontSize: 12, color: C.gray, marginTop: 8 }}>로딩 중...</div>
+              </div>
+            ) : siteEmployees.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "16px 0", color: C.gray, fontSize: 13 }}>
+                등록된 직원이 없습니다.
+              </div>
+            ) : (
+              <>
+                <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                  <button onClick={() => {
+                    const allSite = siteEmployees.map(e => ({ emp_no: e.emp_no, name: e.name, duty: "site" }));
+                    setForm(f => {
+                      const others = f.selectedStaff.filter(s => s.duty !== "site");
+                      const next = [...others, ...allSite];
+                      return { ...f, selectedStaff: next, staff_count: next.length };
+                    });
+                  }} style={{ flex: 1, padding: "8px", border: `1.5px solid ${C.navy}`, borderRadius: 10,
+                    background: form.selectedStaff.filter(s=>s.duty==="site").length === siteEmployees.length ? C.navy : C.white,
+                    color: form.selectedStaff.filter(s=>s.duty==="site").length === siteEmployees.length ? C.white : C.navy,
+                    fontSize: 12, fontWeight: 700, fontFamily: FONT }}>
+                    ✅ 전체 선택
+                  </button>
+                  <button onClick={() => setForm(f => {
+                    const next = f.selectedStaff.filter(s => s.duty !== "site");
+                    return { ...f, selectedStaff: next, staff_count: next.length };
+                  })} style={{ flex: 1, padding: "8px", border: `1.5px solid ${C.border}`, borderRadius: 10,
+                    background: C.white, color: C.gray, fontSize: 12, fontWeight: 700, fontFamily: FONT }}>
+                    ↩️ 초기화
+                  </button>
+                </div>
+                <div style={{ display: "grid", gap: 6, maxHeight: 280, overflowY: "auto" }}>
+                  {siteEmployees.map(emp => {
+                    const isSelected = form.selectedStaff.some(s => s.emp_no === emp.emp_no && s.duty === "site");
+                    return (
+                      <button key={emp.emp_no} onClick={() => {
                         setForm(f => {
                           const exists = f.selectedStaff.find(s => s.emp_no === emp.emp_no);
                           const next = exists
@@ -758,66 +788,142 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
                           return { ...f, selectedStaff: next, staff_count: next.length };
                         });
                       }} style={{
-                        width: "100%", display: "flex", alignItems: "center", gap: 10,
-                        padding: "10px 14px",
-                        background: "transparent", border: "none",
+                        display: "flex", alignItems: "center", gap: 10,
+                        padding: "10px 14px", borderRadius: 12, border: "none",
+                        border: `1.5px solid ${isSelected ? C.navy + "60" : C.border}`,
+                        background: isSelected ? "#eef0ff" : C.white,
                         textAlign: "left", fontFamily: FONT, cursor: "pointer",
                       }}>
-                        <div style={{
-                          width: 22, height: 22, borderRadius: 6, flexShrink: 0,
-                          border: `2px solid ${isSelected ? (dutyInfo?.color || C.navy) : C.border}`,
-                          background: isSelected ? (dutyInfo?.color || C.navy) : C.white,
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                          transition: "all 0.15s",
-                        }}>
+                        <div style={{ width: 22, height: 22, borderRadius: 6, flexShrink: 0,
+                          border: `2px solid ${isSelected ? C.navy : C.border}`,
+                          background: isSelected ? C.navy : C.white,
+                          display: "flex", alignItems: "center", justifyContent: "center" }}>
                           {isSelected && <span style={{ color: C.white, fontSize: 13, fontWeight: 900 }}>✓</span>}
                         </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 14, fontWeight: 700, color: C.dark }}>{emp.name}</div>
                           <div style={{ fontSize: 11, color: C.gray, marginTop: 1 }}>
                             {emp.emp_no} · {emp.position || ""} {emp.work_code ? `(${emp.work_code})` : ""}
                           </div>
                         </div>
-                        {isSelected && (
-                          <span style={{ fontSize: 11, fontWeight: 800, color: dutyInfo?.color,
-                            background: C.white, padding: "3px 8px", borderRadius: 20,
-                            border: `1.5px solid ${dutyInfo?.color}40`, flexShrink: 0 }}>
-                            {dutyInfo?.label}
-                          </span>
-                        )}
                       </button>
+                    );
+                  })}
+                </div>
+              </>
+            )
+          )}
 
-                      {/* 선택 시 구분 버튼 */}
-                      {isSelected && (
-                        <div style={{ display: "flex", gap: 6, padding: "0 14px 10px" }}>
-                          {DUTY_TYPES.map(d => (
-                            <button key={d.key} onClick={() => {
-                              setForm(f => ({
-                                ...f,
-                                selectedStaff: f.selectedStaff.map(s =>
-                                  s.emp_no === emp.emp_no ? { ...s, duty: d.key } : s
-                                ),
-                              }));
-                            }} style={{
-                              flex: 1, padding: "5px 0", borderRadius: 8,
-                              border: `1.5px solid ${duty === d.key ? d.color : C.border}`,
-                              background: duty === d.key ? d.color : C.white,
-                              color: duty === d.key ? C.white : C.gray,
-                              fontSize: 11, fontWeight: 700, fontFamily: FONT, cursor: "pointer",
-                              transition: "all 0.15s",
-                            }}>
-                              {d.label}
-                            </button>
-                          ))}
+          {/* ── 본사지원 탭 ── */}
+          {dutyTab === "hq" && (
+            hqEmployees.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "16px 0", color: C.gray, fontSize: 13 }}>
+                본사 직원 정보가 없습니다.
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: 6, maxHeight: 320, overflowY: "auto" }}>
+                {hqEmployees.map(emp => {
+                  const isSelected = form.selectedStaff.some(s => s.emp_no === emp.emp_no && s.duty === "hq");
+                  return (
+                    <button key={emp.emp_no} onClick={() => {
+                      setForm(f => {
+                        const exists = f.selectedStaff.find(s => s.emp_no === emp.emp_no);
+                        const next = exists
+                          ? f.selectedStaff.filter(s => s.emp_no !== emp.emp_no)
+                          : [...f.selectedStaff, { emp_no: emp.emp_no, name: emp.name, duty: "hq" }];
+                        return { ...f, selectedStaff: next, staff_count: next.length };
+                      });
+                    }} style={{
+                      display: "flex", alignItems: "center", gap: 10,
+                      padding: "10px 14px", borderRadius: 12,
+                      border: `1.5px solid ${isSelected ? "#E97132" + "60" : C.border}`,
+                      background: isSelected ? "#fff4ec" : C.white,
+                      textAlign: "left", fontFamily: FONT, cursor: "pointer",
+                    }}>
+                      <div style={{ width: 22, height: 22, borderRadius: 6, flexShrink: 0,
+                        border: `2px solid ${isSelected ? "#E97132" : C.border}`,
+                        background: isSelected ? "#E97132" : C.white,
+                        display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        {isSelected && <span style={{ color: C.white, fontSize: 13, fontWeight: 900 }}>✓</span>}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: C.dark }}>{emp.name}</div>
+                        <div style={{ fontSize: 11, color: C.gray, marginTop: 1 }}>
+                          {emp.emp_no} · {emp.position || ""}
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    </button>
                   );
                 })}
               </div>
-            </>
+            )
           )}
 
+          {/* ── 알바지원 탭 ── */}
+          {dutyTab === "part" && (
+            <div>
+              {/* 이름 수기입력 */}
+              <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                <input
+                  value={partInput}
+                  onChange={e => setPartInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter" && partInput.trim()) {
+                      const name = partInput.trim();
+                      const emp_no = `PART_${Date.now()}`;
+                      setForm(f => {
+                        const next = [...f.selectedStaff, { emp_no, name, duty: "part" }];
+                        return { ...f, selectedStaff: next, staff_count: next.length };
+                      });
+                      setPartInput("");
+                    }
+                  }}
+                  placeholder="이름 입력 후 추가"
+                  style={{ flex: 1, padding: "11px 14px", border: `2px solid ${C.border}`, borderRadius: 12,
+                    fontSize: 14, fontFamily: FONT, outline: "none", color: C.dark, background: C.lightGray }}
+                />
+                <button onClick={() => {
+                  if (!partInput.trim()) return;
+                  const name = partInput.trim();
+                  const emp_no = `PART_${Date.now()}`;
+                  setForm(f => {
+                    const next = [...f.selectedStaff, { emp_no, name, duty: "part" }];
+                    return { ...f, selectedStaff: next, staff_count: next.length };
+                  });
+                  setPartInput("");
+                }} style={{ padding: "11px 16px", background: "#43A047", color: C.white,
+                  border: "none", borderRadius: 12, fontSize: 14, fontWeight: 800, fontFamily: FONT, cursor: "pointer" }}>
+                  추가
+                </button>
+              </div>
+
+              {/* 추가된 알바 목록 */}
+              {form.selectedStaff.filter(s => s.duty === "part").length === 0 ? (
+                <div style={{ textAlign: "center", padding: "20px 0", color: C.gray, fontSize: 13 }}>
+                  추가된 알바 없음<br/>
+                  <span style={{ fontSize: 11 }}>이름을 입력하고 추가 버튼을 누르세요</span>
+                </div>
+              ) : (
+                <div style={{ display: "grid", gap: 6 }}>
+                  {form.selectedStaff.filter(s => s.duty === "part").map(emp => (
+                    <div key={emp.emp_no} style={{ display: "flex", alignItems: "center", gap: 10,
+                      padding: "10px 14px", borderRadius: 12,
+                      border: `1.5px solid #43A04740`, background: "#edf7ee" }}>
+                      <span style={{ fontSize: 16 }}>👤</span>
+                      <span style={{ flex: 1, fontSize: 14, fontWeight: 700, color: C.dark }}>{emp.name}</span>
+                      <button onClick={() => setForm(f => {
+                        const next = f.selectedStaff.filter(s => s.emp_no !== emp.emp_no);
+                        return { ...f, selectedStaff: next, staff_count: next.length };
+                      })} style={{ background: "none", border: "none", cursor: "pointer",
+                        fontSize: 18, color: C.gray, padding: "2px 6px", lineHeight: 1 }}>
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* 발렛비 */}
