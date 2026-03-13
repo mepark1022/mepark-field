@@ -626,6 +626,19 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
         const { error: pe } = await supabase.from("daily_report_payment").insert(payRows);
         if (pe) throw pe;
       }
+      // 근무직원 저장 (daily_report_staff — 근태현황 연동)
+      await supabase.from("daily_report_staff").delete().eq("report_id", reportId);
+      const staffRows = (form.selectedStaff || []).map(s => ({
+        report_id: reportId,
+        employee_id: s.employee_id || null,
+        name_raw: s.duty === "part" ? s.name : null,
+        staff_type: s.duty || "site",
+        work_hours: 0,
+      }));
+      if (staffRows.length > 0) {
+        const { error: se } = await supabase.from("daily_report_staff").insert(staffRows);
+        if (se) console.error("staff 저장 실패:", se);
+      }
       onSave();
       // 성공 시 임시저장 삭제
       try { localStorage.removeItem(DRAFT_KEY); } catch (_) {}
@@ -772,7 +785,7 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
               <>
                 <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
                   <button onClick={() => {
-                    const allSite = siteEmployees.map(e => ({ emp_no: e.emp_no, name: e.name, duty: "site" }));
+                    const allSite = siteEmployees.map(e => ({ emp_no: e.emp_no, name: e.name, duty: "site", employee_id: e.id }));
                     setForm(f => {
                       const others = f.selectedStaff.filter(s => s.duty !== "site");
                       const next = [...others, ...allSite];
@@ -801,7 +814,7 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
                           const exists = f.selectedStaff.find(s => s.emp_no === emp.emp_no);
                           const next = exists
                             ? f.selectedStaff.filter(s => s.emp_no !== emp.emp_no)
-                            : [...f.selectedStaff, { emp_no: emp.emp_no, name: emp.name, duty: "site" }];
+                            : [...f.selectedStaff, { emp_no: emp.emp_no, name: emp.name, duty: "site", employee_id: emp.id }];
                           return { ...f, selectedStaff: next, staff_count: next.length };
                         });
                       }} style={{
@@ -847,7 +860,7 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
                         const exists = f.selectedStaff.find(s => s.emp_no === emp.emp_no);
                         const next = exists
                           ? f.selectedStaff.filter(s => s.emp_no !== emp.emp_no)
-                          : [...f.selectedStaff, { emp_no: emp.emp_no, name: emp.name, duty: "hq" }];
+                          : [...f.selectedStaff, { emp_no: emp.emp_no, name: emp.name, duty: "hq", employee_id: emp.id }];
                         return { ...f, selectedStaff: next, staff_count: next.length };
                       });
                     }} style={{
@@ -963,7 +976,7 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
                         const exists = f.selectedStaff.find(s => s.emp_no === extraKey);
                         const next = exists
                           ? f.selectedStaff.filter(s => s.emp_no !== extraKey)
-                          : [...f.selectedStaff, { emp_no: extraKey, name: emp.name, duty: "extra" }];
+                          : [...f.selectedStaff, { emp_no: extraKey, name: emp.name, duty: "extra", employee_id: emp.id }];
                         return { ...f, selectedStaff: next, staff_count: next.length };
                       });
                     }} style={{
