@@ -1557,6 +1557,208 @@ function HomePage({ employee, onLogout, onNavigate }) {
   );
 }
 
+// ─── 급여내역서 페이지 ──────────────────────────────────────────────────
+function PayslipPage({ employee, onBack }) {
+  const [slips, setSlips] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedSlip, setSelectedSlip] = useState(null);
+
+  useEffect(() => {
+    loadMyPayslips();
+  }, []);
+
+  async function loadMyPayslips() {
+    setLoading(true);
+    try {
+      // employee.id 또는 emp_no로 조회
+      let query = supabase.from("payslips").select("*").order("year", { ascending: false }).order("month", { ascending: false });
+      if (employee?.id) {
+        query = query.eq("employee_id", employee.id);
+      } else if (employee?.emp_no) {
+        query = query.eq("emp_no", employee.emp_no);
+      }
+      const { data } = await query;
+      setSlips(data || []);
+    } catch (_) { setSlips([]); }
+    setLoading(false);
+  }
+
+  // 열람 시 is_read 업데이트
+  async function handleViewSlip(slip) {
+    setSelectedSlip(slip);
+    if (!slip.is_read) {
+      await supabase.from("payslips").update({ is_read: true, read_at: new Date().toISOString(), status: "read" }).eq("id", slip.id);
+      setSlips(prev => prev.map(s => s.id === slip.id ? { ...s, is_read: true, read_at: new Date().toISOString() } : s));
+    }
+  }
+
+  const fmtN = (n) => (n == null || isNaN(n)) ? "0" : Math.round(Number(n)).toLocaleString("ko-KR");
+
+  // 상세 보기
+  if (selectedSlip) {
+    const s = selectedSlip;
+    const payItems = [
+      { label: "기본급", value: s.basic_pay },
+      { label: "식대", value: s.meal },
+      { label: "보육수당", value: s.childcare },
+      { label: "자가운전", value: s.car_allow },
+      { label: "팀장수당", value: s.team_allow },
+      { label: "명절상여", value: s.holiday_bonus },
+      { label: "인센티브", value: s.incentive },
+      { label: "추가근무", value: s.extra_work },
+      { label: "수기수당", value: s.manual_write },
+      { label: "기타수당", value: s.extra1 },
+    ].filter(item => item.value > 0);
+
+    const dedItems = [
+      { label: "국민연금", value: s.np },
+      { label: "건강보험", value: s.hi },
+      { label: "장기요양", value: s.lt },
+      { label: "고용보험", value: s.ei },
+      { label: "소득세", value: s.income_tax },
+      { label: "지방소득세", value: s.local_tax },
+      { label: "사고공제", value: s.accident_deduct },
+      { label: "선지급", value: s.prepaid },
+    ].filter(item => item.value > 0);
+
+    return (
+      <div style={{ minHeight: "100vh", background: C.lightGray, fontFamily: FONT }}>
+        {/* 헤더 */}
+        <div style={{ background: `linear-gradient(135deg, ${C.navy}, #1E3CB0)`, color: C.white, padding: "16px 20px", position: "sticky", top: 0, zIndex: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <button onClick={() => setSelectedSlip(null)} style={{ background: "none", border: "none", color: C.white, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: FONT }}>← 목록</button>
+            <div style={{ fontSize: 15, fontWeight: 900 }}>{s.year}년 {s.month}월 급여내역서</div>
+            <div style={{ width: 40 }} />
+          </div>
+        </div>
+
+        <div style={{ padding: "16px 16px 100px" }}>
+          {/* 실수령액 카드 */}
+          <div style={{ background: `linear-gradient(135deg, ${C.navy}, #1E3CB0)`, borderRadius: 16, padding: "24px 20px", marginBottom: 16, textAlign: "center", color: C.white }}>
+            <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 8 }}>💰 실수령액</div>
+            <div style={{ fontSize: 32, fontWeight: 900, fontFamily: "monospace" }}>{fmtN(s.net_pay)}<span style={{ fontSize: 16, fontWeight: 700 }}>원</span></div>
+            <div style={{ marginTop: 12, display: "flex", justifyContent: "center", gap: 24, fontSize: 12, opacity: 0.8 }}>
+              <span>지급: {fmtN(s.gross_pay)}원</span>
+              <span>공제: {fmtN(s.total_deduct)}원</span>
+            </div>
+          </div>
+
+          {/* 직원 정보 */}
+          <div style={{ background: C.white, borderRadius: 12, padding: "14px 16px", marginBottom: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+              <span style={{ color: C.gray }}>성명</span>
+              <span style={{ fontWeight: 700 }}>{s.emp_name}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginTop: 8 }}>
+              <span style={{ color: C.gray }}>사번</span>
+              <span style={{ fontWeight: 700, color: C.navy }}>{s.emp_no}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginTop: 8 }}>
+              <span style={{ color: C.gray }}>사업장</span>
+              <span style={{ fontWeight: 700 }}>{getSiteName(s.site_code)}</span>
+            </div>
+          </div>
+
+          {/* 지급 항목 */}
+          <div style={{ background: C.white, borderRadius: 12, padding: "14px 16px", marginBottom: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+            <div style={{ fontSize: 14, fontWeight: 900, color: C.navy, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>💵 지급 항목</div>
+            {payItems.map(item => (
+              <div key={item.label} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.lightGray}`, fontSize: 13 }}>
+                <span style={{ color: C.gray }}>{item.label}</span>
+                <span style={{ fontWeight: 700, fontFamily: "monospace" }}>{fmtN(item.value)}원</span>
+              </div>
+            ))}
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0 0", fontSize: 14, fontWeight: 900 }}>
+              <span style={{ color: C.navy }}>지급 합계</span>
+              <span style={{ color: C.navy, fontFamily: "monospace" }}>{fmtN(s.gross_pay)}원</span>
+            </div>
+          </div>
+
+          {/* 공제 항목 */}
+          <div style={{ background: C.white, borderRadius: 12, padding: "14px 16px", marginBottom: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+            <div style={{ fontSize: 14, fontWeight: 900, color: C.red, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>📋 공제 항목 <span style={{ fontSize: 11, fontWeight: 600, color: C.gray }}>({s.tax_type})</span></div>
+            {dedItems.length === 0 ? (
+              <div style={{ textAlign: "center", padding: 16, color: C.gray, fontSize: 13 }}>공제 항목 없음</div>
+            ) : dedItems.map(item => (
+              <div key={item.label} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.lightGray}`, fontSize: 13 }}>
+                <span style={{ color: C.gray }}>{item.label}</span>
+                <span style={{ fontWeight: 700, fontFamily: "monospace", color: C.red }}>-{fmtN(item.value)}원</span>
+              </div>
+            ))}
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0 0", fontSize: 14, fontWeight: 900 }}>
+              <span style={{ color: C.red }}>공제 합계</span>
+              <span style={{ color: C.red, fontFamily: "monospace" }}>-{fmtN(s.total_deduct)}원</span>
+            </div>
+          </div>
+
+          {/* 계좌 정보 */}
+          {s.bank_name && (
+            <div style={{ background: C.white, borderRadius: 12, padding: "14px 16px", marginBottom: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+              <div style={{ fontSize: 14, fontWeight: 900, color: C.navy, marginBottom: 12 }}>🏦 입금 계좌</div>
+              <div style={{ fontSize: 13, color: C.gray }}>
+                {s.bank_name} {s.account_no} ({s.account_holder})
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // 목록 화면
+  return (
+    <div style={{ minHeight: "100vh", background: C.lightGray, fontFamily: FONT }}>
+      {/* 헤더 */}
+      <div style={{ background: `linear-gradient(135deg, ${C.navy}, #1E3CB0)`, color: C.white, padding: "16px 20px" }}>
+        <div style={{ fontSize: 18, fontWeight: 900 }}>💰 급여내역서</div>
+        <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>{employee?.name}님의 급여내역</div>
+      </div>
+
+      <div style={{ padding: "16px 16px 100px" }}>
+        {loading ? (
+          <div style={{ textAlign: "center", padding: 60, color: C.gray }}>로딩 중...</div>
+        ) : slips.length === 0 ? (
+          <div style={{ textAlign: "center", padding: 60, color: C.gray, fontSize: 14 }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>💰</div>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>급여내역서가 없습니다</div>
+            <div style={{ fontSize: 12 }}>급여가 확정되면 이곳에 표시됩니다.</div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {slips.map(s => (
+              <button key={s.id} onClick={() => handleViewSlip(s)}
+                style={{ display: "block", width: "100%", background: C.white, borderRadius: 14, padding: "16px 18px",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.04)", border: s.is_read ? `1px solid ${C.border}` : `2px solid ${C.gold}`,
+                  cursor: "pointer", textAlign: "left", fontFamily: FONT, position: "relative" }}>
+                {!s.is_read && (
+                  <div style={{ position: "absolute", top: 10, right: 12, width: 10, height: 10, borderRadius: 5, background: C.red }} />
+                )}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div style={{ fontSize: 15, fontWeight: 900, color: C.dark }}>{s.year}년 {s.month}월</div>
+                  <div style={{ fontSize: 10, fontWeight: 700, padding: "3px 10px", borderRadius: 20,
+                    background: s.is_read ? "#D4EDDA" : "#FFF3CD", color: s.is_read ? "#155724" : "#856404" }}>
+                    {s.is_read ? "✅ 확인" : "🆕 새 내역서"}
+                  </div>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: C.gray, marginBottom: 4 }}>{getSiteName(s.site_code)}</div>
+                    <div style={{ fontSize: 11, color: C.gray }}>지급 {fmtN(s.gross_pay)}원 · 공제 {fmtN(s.total_deduct)}원</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 11, color: C.gray, marginBottom: 2 }}>실수령액</div>
+                    <div style={{ fontSize: 20, fontWeight: 900, color: C.navy, fontFamily: "monospace" }}>{fmtN(s.net_pay)}<span style={{ fontSize: 12, fontWeight: 700 }}>원</span></div>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── 앱 루트 ──────────────────────────────────────────────────────────────
 export default function App() {
   const [authState, setAuthState] = useState("loading");
@@ -1564,6 +1766,7 @@ export default function App() {
   const [page, setPage] = useState("home");
   const [pageData, setPageData] = useState(null);
   const [toast, setToast] = useState(null);
+  const [unreadPayslips, setUnreadPayslips] = useState(0);
 
   // 사업장명 DB 로드 (site_details.site_name 컬럼 — 없으면 기본값 유지)
   useEffect(() => {
@@ -1654,6 +1857,22 @@ export default function App() {
     setPageData(null);
   }
 
+  // 미확인 급여내역서 수 로딩
+  const loadUnreadPayslips = useCallback(async () => {
+    if (!employee?.id && !employee?.emp_no) return;
+    try {
+      let query = supabase.from("payslips").select("id", { count: "exact", head: true }).eq("is_read", false);
+      if (employee?.id) query = query.eq("employee_id", employee.id);
+      else if (employee?.emp_no) query = query.eq("emp_no", employee.emp_no);
+      const { count } = await query;
+      setUnreadPayslips(count || 0);
+    } catch (_) {}
+  }, [employee]);
+
+  useEffect(() => {
+    if (authState === "home") loadUnreadPayslips();
+  }, [authState, loadUnreadPayslips, page]);
+
   if (authState === "loading") {
     return (
       <div style={{
@@ -1684,8 +1903,49 @@ export default function App() {
           onSave={handleReportSaved}
           onBack={() => { setPage("home"); setPageData(null); }}
         />
+      ) : page === "payslip" ? (
+        <PayslipPage employee={employee} onBack={() => setPage("home")} />
       ) : (
         <HomePage employee={employee} onLogout={handleLogout} onNavigate={handleNavigate} />
+      )}
+
+      {/* ── 하단 탭 바 ── */}
+      {page !== "form" && (
+        <div style={{
+          position: "fixed", bottom: 0, left: 0, right: 0, background: C.white,
+          borderTop: `1px solid ${C.border}`, display: "flex", zIndex: 100,
+          paddingBottom: "env(safe-area-inset-bottom, 0px)",
+          boxShadow: "0 -2px 12px rgba(0,0,0,0.06)",
+        }}>
+          {[
+            { key: "home", icon: "🏠", label: "홈", badge: 0 },
+            { key: "payslip", icon: "💰", label: "급여", badge: unreadPayslips },
+          ].map(tab => (
+            <button key={tab.key} onClick={() => { setPage(tab.key); setPageData(null); }}
+              style={{
+                flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
+                justifyContent: "center", padding: "10px 0 8px", border: "none", cursor: "pointer",
+                background: "transparent", fontFamily: FONT, position: "relative",
+                color: page === tab.key ? C.navy : C.gray,
+              }}>
+              <div style={{ fontSize: 20, marginBottom: 2, position: "relative" }}>
+                {tab.icon}
+                {tab.badge > 0 && (
+                  <div style={{
+                    position: "absolute", top: -4, right: -10, minWidth: 18, height: 18,
+                    borderRadius: 9, background: C.red, color: C.white,
+                    fontSize: 10, fontWeight: 900, display: "flex", alignItems: "center",
+                    justifyContent: "center", padding: "0 4px",
+                  }}>{tab.badge}</div>
+                )}
+              </div>
+              <div style={{ fontSize: 10, fontWeight: page === tab.key ? 900 : 600 }}>{tab.label}</div>
+              {page === tab.key && (
+                <div style={{ position: "absolute", top: 0, left: "30%", right: "30%", height: 3, borderRadius: 2, background: C.navy }} />
+              )}
+            </button>
+          ))}
+        </div>
       )}
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
