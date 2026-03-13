@@ -422,17 +422,29 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
     loadSiteEmployees();
   }, [siteCode]);
 
-  // 본사(V000) 직원 목록 로드
+  // 본사(V000) 직원 목록 로드 (슈퍼어드민 제외)
   useEffect(() => {
     async function loadHqEmployees() {
       try {
+        // 슈퍼어드민 emp_no 목록 조회
+        const { data: superAdmins } = await supabase
+          .from("profiles")
+          .select("emp_no")
+          .eq("role", "super_admin");
+        const excludeNos = (superAdmins || []).map(p => p.emp_no).filter(Boolean);
+
         const { data } = await supabase
           .from("employees")
           .select("id, emp_no, name, position")
           .eq("site_code_1", "V000")
           .in("status", ["active", "재직"])
           .order("emp_no");
-        if (data) setHqEmployees(data);
+        if (data) {
+          const filtered = excludeNos.length > 0
+            ? data.filter(e => !excludeNos.includes(e.emp_no))
+            : data;
+          setHqEmployees(filtered);
+        }
       } catch (e) { console.error("본사 직원 로드 실패:", e); }
     }
     loadHqEmployees();
@@ -939,14 +951,15 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
             ) : (
               <div style={{ display: "grid", gap: 6, maxHeight: 280, overflowY: "auto" }}>
                 {siteEmployees.map(emp => {
-                  const isSelected = form.selectedStaff.some(s => s.emp_no === emp.emp_no && s.duty === "extra");
+                  const extraKey = `${emp.emp_no}_extra`;
+                  const isSelected = form.selectedStaff.some(s => s.emp_no === extraKey);
                   return (
                     <button key={emp.emp_no} onClick={() => {
                       setForm(f => {
-                        const exists = f.selectedStaff.find(s => s.emp_no === emp.emp_no && s.duty === "extra");
+                        const exists = f.selectedStaff.find(s => s.emp_no === extraKey);
                         const next = exists
-                          ? f.selectedStaff.filter(s => !(s.emp_no === emp.emp_no && s.duty === "extra"))
-                          : [...f.selectedStaff, { emp_no: `${emp.emp_no}_extra`, name: emp.name, duty: "extra" }];
+                          ? f.selectedStaff.filter(s => s.emp_no !== extraKey)
+                          : [...f.selectedStaff, { emp_no: extraKey, name: emp.name, duty: "extra" }];
                         return { ...f, selectedStaff: next, staff_count: next.length };
                       });
                     }} style={{
