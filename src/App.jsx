@@ -150,37 +150,15 @@ function LoginPage({ onLogin }) {
 
   async function handleEmpIdNext() {
     if (!empId.trim()) { setError("사번을 입력해주세요."); return; }
-    setError("");
-    setLoading(true);
     const id = empId.trim().toUpperCase();
-    try {
-      // ① profiles 테이블에서 사번 확인 (crew 계정)
-      const { data: profData } = await supabase
-        .from("profiles")
-        .select("name, emp_no, site_code")
-        .or(`emp_no.eq.${id},email.eq.${id.toLowerCase()}@mepark.internal`)
-        .maybeSingle();
-
-      if (profData?.name) {
-        localStorage.setItem(STORAGE_EMP_ID_KEY, id);
-        setEmpName(profData.name);
-        setStep("pin");
-        return;
-      }
-
-      // ② fallback: employees 테이블 (기존 field_member)
-      const { data, error: dbErr } = await supabase
-        .rpc("check_field_employee", { p_emp_no: id });
-      if (dbErr || !data || !data.name) { setError("등록되지 않은 사번입니다. 관리자에게 문의하세요."); return; }
-      if (data.status !== "active") { setError("재직 중인 직원이 아닙니다. 관리자에게 문의하세요."); return; }
-      localStorage.setItem(STORAGE_EMP_ID_KEY, id);
-      setEmpName(data.name);
-      setStep("pin");
-    } catch (e) {
-      setError(e.message || "오류가 발생했습니다.");
-    } finally {
-      setLoading(false);
+    // 사번 형식 체크만 (MP숫자 or MPA숫자)
+    if (!/^MP[A-Z]?\d+$/.test(id)) {
+      setError("사번 형식이 올바르지 않습니다. (예: MP24101)");
+      return;
     }
+    localStorage.setItem(STORAGE_EMP_ID_KEY, id);
+    setEmpName(id);   // PIN 화면에 사번 표시
+    setStep("pin");
   }
 
   function handlePinKey(key) {
