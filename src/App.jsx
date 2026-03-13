@@ -27,6 +27,7 @@ const DUTY_TYPES = [
   { key: "site",    label: "해당매장",  color: "#1428A0", bg: "#eef0ff" },
   { key: "hq",      label: "본사지원",  color: "#E97132", bg: "#fff4ec" },
   { key: "part",    label: "알바지원",  color: "#43A047", bg: "#edf7ee" },
+  { key: "extra",   label: "추가근무",  color: "#8B5CF6", bg: "#f3f0ff" },
 ];
 
 const PAYMENT_TYPES = [
@@ -924,9 +925,62 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
               )}
             </div>
           )}
+          {/* ── 추가근무 탭 ── */}
+          {dutyTab === "extra" && (
+            loadingStaff ? (
+              <div style={{ textAlign: "center", padding: "16px 0" }}>
+                <Spinner size={24} color="#8B5CF6" />
+                <div style={{ fontSize: 12, color: C.gray, marginTop: 8 }}>로딩 중...</div>
+              </div>
+            ) : siteEmployees.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "16px 0", color: C.gray, fontSize: 13 }}>
+                등록된 직원이 없습니다.
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: 6, maxHeight: 280, overflowY: "auto" }}>
+                {siteEmployees.map(emp => {
+                  const isSelected = form.selectedStaff.some(s => s.emp_no === emp.emp_no && s.duty === "extra");
+                  return (
+                    <button key={emp.emp_no} onClick={() => {
+                      setForm(f => {
+                        const exists = f.selectedStaff.find(s => s.emp_no === emp.emp_no && s.duty === "extra");
+                        const next = exists
+                          ? f.selectedStaff.filter(s => !(s.emp_no === emp.emp_no && s.duty === "extra"))
+                          : [...f.selectedStaff, { emp_no: `${emp.emp_no}_extra`, name: emp.name, duty: "extra" }];
+                        return { ...f, selectedStaff: next, staff_count: next.length };
+                      });
+                    }} style={{
+                      display: "flex", alignItems: "center", gap: 10,
+                      padding: "10px 14px", borderRadius: 12,
+                      border: `1.5px solid ${isSelected ? "#8B5CF660" : C.border}`,
+                      background: isSelected ? "#f3f0ff" : C.white,
+                      textAlign: "left", fontFamily: FONT, cursor: "pointer",
+                    }}>
+                      <div style={{ width: 22, height: 22, borderRadius: 6, flexShrink: 0,
+                        border: `2px solid ${isSelected ? "#8B5CF6" : C.border}`,
+                        background: isSelected ? "#8B5CF6" : C.white,
+                        display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        {isSelected && <span style={{ color: C.white, fontSize: 13, fontWeight: 900 }}>✓</span>}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: C.dark }}>{emp.name}</div>
+                        <div style={{ fontSize: 11, color: C.gray, marginTop: 1 }}>
+                          {emp.emp_no} · {emp.position || ""} {emp.work_code ? `(${emp.work_code})` : ""}
+                        </div>
+                      </div>
+                      {isSelected && (
+                        <span style={{ fontSize: 10, fontWeight: 800, color: "#8B5CF6",
+                          background: C.white, padding: "2px 7px", borderRadius: 20,
+                          border: "1.5px solid #8B5CF640", flexShrink: 0 }}>추가근무</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )
+          )}
         </div>
 
-        {/* 발렛비 */}
         <div style={sectionStyle}>
           {sectionTitle("💰", "발렛비")}
 
