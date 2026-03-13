@@ -431,8 +431,13 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
           .from("profiles")
           .select("emp_no, name")
           .eq("role", "super_admin");
-        const excludeNos = (superAdmins || []).map(p => p.emp_no).filter(Boolean);
-        const excludeNames = (superAdmins || []).map(p => p.name).filter(Boolean);
+        const excludeNos = new Set((superAdmins || []).map(p => p.emp_no).filter(Boolean));
+        const excludeNames = new Set((superAdmins || []).map(p => p.name).filter(Boolean));
+        // 현재 로그인 사용자가 슈퍼어드민이면 본인도 제외
+        if (employee?.role === "super_admin") {
+          if (employee?.emp_no) excludeNos.add(employee.emp_no);
+          if (employee?.name) excludeNames.add(employee.name);
+        }
 
         const { data } = await supabase
           .from("employees")
@@ -442,7 +447,7 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
           .order("emp_no");
         if (data) {
           const filtered = data.filter(e =>
-            !excludeNos.includes(e.emp_no) && !excludeNames.includes(e.name)
+            !excludeNos.has(e.emp_no) && !excludeNames.has(e.name)
           );
           setHqEmployees(filtered);
         }
