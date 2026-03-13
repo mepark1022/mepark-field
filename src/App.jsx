@@ -23,6 +23,12 @@ const APP_VERSION = "v1.0";
 const STORAGE_EMP_ID_KEY = "mepark_field_emp_id";
 const FONT = "'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif";
 
+const DUTY_TYPES = [
+  { key: "site",    label: "해당매장",  color: "#1428A0", bg: "#eef0ff" },
+  { key: "hq",      label: "본사지원",  color: "#E97132", bg: "#fff4ec" },
+  { key: "part",    label: "알바지원",  color: "#43A047", bg: "#edf7ee" },
+];
+
 const PAYMENT_TYPES = [
   { key: "cash",     label: "현금",     icon: "💵" },
   { key: "card",     label: "카드",     icon: "💳" },
@@ -358,11 +364,16 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
   const [form, setForm] = useState(() => {
     // 수정 모드면 편집 데이터 우선
     if (editReport) {
+      // 기존 selected_staff가 문자열 배열일 수 있으므로 호환 처리
+      const rawStaff = editReport.selected_staff || [];
+      const selectedStaff = rawStaff.map(s =>
+        typeof s === "string" ? { emp_no: s, name: "", duty: "site" } : s
+      );
       return {
         valet_count: editReport.valet_count || 0,
         valet_amount: editReport.valet_amount || 0,
         staff_count: editReport.staff_count || 0,
-        selectedStaff: editReport.selected_staff || [],
+        selectedStaff,
         memo: editReport.memo || "",
         images: editReport.images || [],
         payList: PAYMENT_TYPES.map(pt => {
@@ -460,6 +471,7 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false); // 제출 확인 팝업
 
   const payTotal = useMemo(() => form.payList.reduce((s, p) => s + toNum(p.amount), 0), [form.payList]);
   // 건수 합산 (기타 제외) — valet_count 자동계산
@@ -527,11 +539,17 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
     setForm(f => ({ ...f, images: f.images.filter((_, i) => i !== idx) }));
   }
 
-  async function handleSubmit() {
+  function handleConfirmOpen() {
     if (autoValetCount <= 0 && payTotal <= 0 && !form.memo?.trim()) {
       setError("최소 1개 이상의 항목을 입력해주세요.");
       return;
     }
+    setError("");
+    setShowConfirm(true);
+  }
+
+  async function handleSubmit() {
+    setShowConfirm(false);
     setSaving(true);
     setError("");
     try {
@@ -684,11 +702,11 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
             </div>
           ) : (
             <>
-              {/* 전체 선택 / 해제 */}
+              {/* 전체 선택 / 초기화 */}
               <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
                 <button onClick={() => {
-                  const allIds = siteEmployees.map(e => e.emp_no);
-                  setForm(f => ({ ...f, selectedStaff: allIds, staff_count: allIds.length }));
+                  const allStaff = siteEmployees.map(e => ({ emp_no: e.emp_no, name: e.name, duty: "site" }));
+                  setForm(f => ({ ...f, selectedStaff: allStaff, staff_count: allStaff.length }));
                 }} style={{
                   flex: 1, padding: "8px", border: `1.5px solid ${C.navy}`, borderRadius: 10,
                   background: form.selectedStaff.length === siteEmployees.length ? C.navy : C.white,
@@ -706,41 +724,94 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
                 </button>
               </div>
 
+              {/* 구분 범례 */}
+              <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+                {DUTY_TYPES.map(d => (
+                  <span key={d.key} style={{ fontSize: 11, fontWeight: 700, color: d.color,
+                    background: d.bg, padding: "3px 8px", borderRadius: 20 }}>
+                    {d.label}
+                  </span>
+                ))}
+                <span style={{ fontSize: 11, color: C.gray, alignSelf: "center" }}>— 선택 후 구분을 설정하세요</span>
+              </div>
+
               {/* 직원 리스트 */}
-              <div style={{ display: "grid", gap: 6, maxHeight: 240, overflowY: "auto", padding: "2px 0" }}>
+              <div style={{ display: "grid", gap: 8, maxHeight: 320, overflowY: "auto", padding: "2px 0" }}>
                 {siteEmployees.map(emp => {
-                  const isSelected = form.selectedStaff.includes(emp.emp_no);
+                  const sel = form.selectedStaff.find(s => s.emp_no === emp.emp_no);
+                  const isSelected = !!sel;
+                  const duty = sel?.duty || "site";
+                  const dutyInfo = DUTY_TYPES.find(d => d.key === duty);
                   return (
-                    <button key={emp.emp_no} onClick={() => {
-                      setForm(f => {
-                        const next = isSelected
-                          ? f.selectedStaff.filter(id => id !== emp.emp_no)
-                          : [...f.selectedStaff, emp.emp_no];
-                        return { ...f, selectedStaff: next, staff_count: next.length };
-                      });
-                    }} style={{
-                      display: "flex", alignItems: "center", gap: 10,
-                      padding: "10px 14px", borderRadius: 12,
-                      border: `1.5px solid ${isSelected ? C.navy : C.border}`,
-                      background: isSelected ? "#eef0ff" : C.white,
-                      textAlign: "left", fontFamily: FONT, transition: "all 0.15s",
+                    <div key={emp.emp_no} style={{
+                      borderRadius: 14, border: `1.5px solid ${isSelected ? (dutyInfo?.color + "60") : C.border}`,
+                      background: isSelected ? dutyInfo?.bg : C.white,
+                      overflow: "hidden", transition: "all 0.15s",
                     }}>
-                      <div style={{
-                        width: 22, height: 22, borderRadius: 6, flexShrink: 0,
-                        border: `2px solid ${isSelected ? C.navy : C.border}`,
-                        background: isSelected ? C.navy : C.white,
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        transition: "all 0.15s",
+                      {/* 직원 행 — 탭하면 선택/해제 */}
+                      <button onClick={() => {
+                        setForm(f => {
+                          const exists = f.selectedStaff.find(s => s.emp_no === emp.emp_no);
+                          const next = exists
+                            ? f.selectedStaff.filter(s => s.emp_no !== emp.emp_no)
+                            : [...f.selectedStaff, { emp_no: emp.emp_no, name: emp.name, duty: "site" }];
+                          return { ...f, selectedStaff: next, staff_count: next.length };
+                        });
+                      }} style={{
+                        width: "100%", display: "flex", alignItems: "center", gap: 10,
+                        padding: "10px 14px",
+                        background: "transparent", border: "none",
+                        textAlign: "left", fontFamily: FONT, cursor: "pointer",
                       }}>
-                        {isSelected && <span style={{ color: C.white, fontSize: 13, fontWeight: 900 }}>✓</span>}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: C.dark }}>{emp.name}</div>
-                        <div style={{ fontSize: 11, color: C.gray, marginTop: 1 }}>
-                          {emp.emp_no} · {emp.position || ""} {emp.work_code ? `(${emp.work_code})` : ""}
+                        <div style={{
+                          width: 22, height: 22, borderRadius: 6, flexShrink: 0,
+                          border: `2px solid ${isSelected ? (dutyInfo?.color || C.navy) : C.border}`,
+                          background: isSelected ? (dutyInfo?.color || C.navy) : C.white,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          transition: "all 0.15s",
+                        }}>
+                          {isSelected && <span style={{ color: C.white, fontSize: 13, fontWeight: 900 }}>✓</span>}
                         </div>
-                      </div>
-                    </button>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: C.dark }}>{emp.name}</div>
+                          <div style={{ fontSize: 11, color: C.gray, marginTop: 1 }}>
+                            {emp.emp_no} · {emp.position || ""} {emp.work_code ? `(${emp.work_code})` : ""}
+                          </div>
+                        </div>
+                        {isSelected && (
+                          <span style={{ fontSize: 11, fontWeight: 800, color: dutyInfo?.color,
+                            background: C.white, padding: "3px 8px", borderRadius: 20,
+                            border: `1.5px solid ${dutyInfo?.color}40`, flexShrink: 0 }}>
+                            {dutyInfo?.label}
+                          </span>
+                        )}
+                      </button>
+
+                      {/* 선택 시 구분 버튼 */}
+                      {isSelected && (
+                        <div style={{ display: "flex", gap: 6, padding: "0 14px 10px" }}>
+                          {DUTY_TYPES.map(d => (
+                            <button key={d.key} onClick={() => {
+                              setForm(f => ({
+                                ...f,
+                                selectedStaff: f.selectedStaff.map(s =>
+                                  s.emp_no === emp.emp_no ? { ...s, duty: d.key } : s
+                                ),
+                              }));
+                            }} style={{
+                              flex: 1, padding: "5px 0", borderRadius: 8,
+                              border: `1.5px solid ${duty === d.key ? d.color : C.border}`,
+                              background: duty === d.key ? d.color : C.white,
+                              color: duty === d.key ? C.white : C.gray,
+                              fontSize: 11, fontWeight: 700, fontFamily: FONT, cursor: "pointer",
+                              transition: "all 0.15s",
+                            }}>
+                              {d.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -941,6 +1012,104 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
         )}
       </div>
 
+      {/* 제출 확인 팝업 */}
+      {showConfirm && (
+        <div style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+          display: "flex", alignItems: "flex-end", justifyContent: "center",
+          zIndex: 1000, padding: "0 0 env(safe-area-inset-bottom)",
+        }}>
+          <div style={{
+            background: C.white, borderRadius: "24px 24px 0 0",
+            width: "100%", maxWidth: 480, padding: "24px 20px 32px",
+            boxShadow: "0 -8px 40px rgba(0,0,0,0.15)",
+          }}>
+            <div style={{ textAlign: "center", marginBottom: 20 }}>
+              <div style={{ fontSize: 28, marginBottom: 6 }}>📋</div>
+              <div style={{ fontSize: 17, fontWeight: 900, color: C.dark }}>일보 제출 확인</div>
+              <div style={{ fontSize: 12, color: C.gray, marginTop: 4 }}>{getSiteName(siteCode)} · {formatDate(today)}</div>
+            </div>
+
+            {/* 근무 현황 요약 */}
+            <div style={{ background: "#f5f6fa", borderRadius: 14, padding: "14px 16px", marginBottom: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: C.navy, marginBottom: 10 }}>👥 근무 현황 ({form.selectedStaff.length}명)</div>
+              {form.selectedStaff.length === 0 ? (
+                <div style={{ fontSize: 12, color: C.gray }}>선택된 직원 없음</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  {DUTY_TYPES.map(d => {
+                    const members = form.selectedStaff.filter(s => s.duty === d.key);
+                    if (members.length === 0) return null;
+                    return (
+                      <div key={d.key} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                        <span style={{ fontSize: 10, fontWeight: 800, color: d.color,
+                          background: d.bg, padding: "2px 7px", borderRadius: 20, flexShrink: 0, marginTop: 1 }}>
+                          {d.label} {members.length}명
+                        </span>
+                        <span style={{ fontSize: 12, color: C.dark, lineHeight: 1.6 }}>
+                          {members.map(s => s.name || s.emp_no).join(", ")}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* 발렛비 요약 */}
+            <div style={{ background: "#f5f6fa", borderRadius: 14, padding: "14px 16px", marginBottom: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: C.navy, marginBottom: 10 }}>💰 발렛비 ({autoValetCount}건)</div>
+              <div style={{ display: "grid", gap: 6 }}>
+                {form.payList.filter(p => toNum(p.count) > 0 || toNum(p.amount) > 0).map(p => {
+                  const pt = PAYMENT_TYPES.find(t => t.key === p.payment_type);
+                  return (
+                    <div key={p.payment_type} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                      <span style={{ color: C.gray }}>{pt?.icon} {pt?.label}{toNum(p.count) > 0 ? ` ${toNum(p.count)}건` : ""}</span>
+                      <span style={{ fontWeight: 800, color: C.dark, fontFamily: "monospace" }}>{fmt(p.amount)}원</span>
+                    </div>
+                  );
+                })}
+                {form.payList.every(p => toNum(p.count) === 0 && toNum(p.amount) === 0) && (
+                  <div style={{ fontSize: 12, color: C.gray }}>입력 없음</div>
+                )}
+              </div>
+              <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 8, paddingTop: 8,
+                display: "flex", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: C.navy }}>합계</span>
+                <span style={{ fontSize: 15, fontWeight: 900, color: C.navy, fontFamily: "monospace" }}>{fmt(payTotal)}원</span>
+              </div>
+            </div>
+
+            {/* 메모 */}
+            {form.memo?.trim() && (
+              <div style={{ background: "#f5f6fa", borderRadius: 14, padding: "12px 16px", marginBottom: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: C.navy, marginBottom: 6 }}>📝 메모</div>
+                <div style={{ fontSize: 13, color: C.dark, lineHeight: 1.5 }}>{form.memo}</div>
+              </div>
+            )}
+
+            {/* 버튼 */}
+            <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+              <button onClick={() => setShowConfirm(false)} style={{
+                flex: 1, padding: "14px", borderRadius: 14,
+                border: `1.5px solid ${C.border}`, background: C.white,
+                color: C.gray, fontSize: 15, fontWeight: 700, fontFamily: FONT,
+              }}>
+                취소
+              </button>
+              <button onClick={handleSubmit} style={{
+                flex: 2, padding: "14px", borderRadius: 14, border: "none",
+                background: `linear-gradient(135deg, ${C.navy}, #2a3eb1)`,
+                color: C.white, fontSize: 15, fontWeight: 900, fontFamily: FONT,
+                boxShadow: `0 4px 16px ${C.navy}40`,
+              }}>
+                ✅ 제출하기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 하단 고정 제출 버튼 */}
       <div style={{
         position: "fixed", bottom: 0, left: 0, right: 0,
@@ -948,7 +1117,7 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
         background: C.white, boxShadow: "0 -4px 20px rgba(0,0,0,0.08)",
         borderTop: `1px solid ${C.border}`,
       }}>
-        <button onClick={handleSubmit} disabled={saving}
+        <button onClick={handleConfirmOpen} disabled={saving}
           style={{
             width: "100%", padding: "16px",
             background: saving ? C.border : `linear-gradient(135deg, ${C.navy}, ${C.navyLight})`,
