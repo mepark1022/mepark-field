@@ -422,7 +422,7 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
     loadSiteEmployees();
   }, [siteCode]);
 
-  // 본사(V000) 직원 목록 로드 (대표 제외)
+  // 본사(V000) 직원 목록 로드 (임원급 제외: 대표, 본부장)
   useEffect(() => {
     async function loadHqEmployees() {
       try {
@@ -433,8 +433,8 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
           .in("status", ["active", "재직"])
           .order("emp_no");
         if (data) {
-          // 직위가 "대표"인 사람 제외
-          setHqEmployees(data.filter(e => e.position !== "대표"));
+          const EXCLUDE_POSITIONS = ["대표", "본부장"];
+          setHqEmployees(data.filter(e => !EXCLUDE_POSITIONS.includes(e.position)));
         }
       } catch (e) { console.error("본사 직원 로드 실패:", e); }
     }
