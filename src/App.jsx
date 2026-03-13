@@ -353,6 +353,7 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
   const [siteEmployees, setSiteEmployees] = useState([]);
   const [loadingStaff, setLoadingStaff] = useState(true);
   const [draftRestored, setDraftRestored] = useState(false);
+  const [valetRate, setValetRate] = useState(0); // 사업장 발렛 단가
 
   const [form, setForm] = useState(() => {
     // 수정 모드면 편집 데이터 우선
@@ -404,6 +405,21 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
       }
     }
     loadSiteEmployees();
+  }, [siteCode]);
+
+  // 사업장 발렛 단가 로드
+  useEffect(() => {
+    async function loadValetRate() {
+      try {
+        const { data } = await supabase
+          .from("site_details")
+          .select("valet_rate")
+          .eq("site_code", siteCode)
+          .maybeSingle();
+        if (data?.valet_rate) setValetRate(data.valet_rate);
+      } catch (_) {}
+    }
+    loadValetRate();
   }, [siteCode]);
 
   // 오프라인 임시저장 — form 변경 시 1초 디바운스로 localStorage 저장 (신규 작성 모드만)
@@ -729,11 +745,52 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
         {/* 발렛비 */}
         <div style={sectionStyle}>
           {sectionTitle("💰", "발렛비")}
-          <label style={labelStyle}>오늘 발렛비 총액</label>
-          <NumInput value={form.valet_amount} onChange={v => setForm(f => ({ ...f, valet_amount: v }))} suffix="원" />
+
+          {/* 단가 표시 (site_details에서 로드) */}
+          {valetRate > 0 && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
+              background: "#EEF2FF", borderRadius: 10, padding: "8px 14px", marginBottom: 12 }}>
+              <span style={{ fontSize: 12, color: C.navy, fontWeight: 700 }}>💡 설정 단가</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 14, fontWeight: 900, color: C.navy, fontFamily: "monospace" }}>{fmt(valetRate)}원/건</span>
+                <button
+                  onClick={() => {
+                    const cnt = toNum(form.valet_count);
+                    if (cnt > 0) setForm(f => ({ ...f, valet_amount: cnt * valetRate }));
+                  }}
+                  style={{ fontSize: 11, fontWeight: 700, color: C.white, background: C.navy,
+                    border: "none", borderRadius: 6, padding: "4px 10px", cursor: "pointer" }}>
+                  자동계산
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1.8fr", gap: 10, marginBottom: 10 }}>
+            <div>
+              <label style={labelStyle}>건수</label>
+              <NumInput value={form.valet_count}
+                onChange={v => {
+                  setForm(f => {
+                    const newCount = toNum(v);
+                    const newAmount = valetRate > 0 ? newCount * valetRate : f.valet_amount;
+                    return { ...f, valet_count: v, valet_amount: newAmount };
+                  });
+                }}
+                suffix="건" />
+            </div>
+            <div>
+              <label style={labelStyle}>발렛비 총액</label>
+              <NumInput value={form.valet_amount}
+                onChange={v => setForm(f => ({ ...f, valet_amount: v }))}
+                suffix="원" />
+            </div>
+          </div>
+
+          {/* 건당 단가 표시 */}
           {toNum(form.valet_count) > 0 && toNum(form.valet_amount) > 0 && (
-            <div style={{ marginTop: 8, fontSize: 12, color: C.gray, textAlign: "right" }}>
-              건당 평균 <strong style={{ color: C.navy }}>{fmt(Math.round(toNum(form.valet_amount) / toNum(form.valet_count)))}</strong>원
+            <div style={{ fontSize: 12, color: C.gray, textAlign: "right", marginTop: 4 }}>
+              건당 <strong style={{ color: C.navy }}>{fmt(Math.round(toNum(form.valet_amount) / toNum(form.valet_count)))}</strong>원
             </div>
           )}
         </div>
