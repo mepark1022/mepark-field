@@ -30,17 +30,25 @@ const PAYMENT_TYPES = [
   { key: "etc",      label: "기타",     icon: "📋" },
 ];
 
-// ─── 유틸 ────────────────────────────────────────────────────────────────
+// ─── 사업장 마스터 (ERP와 동기화된 기본값) ──────────────────────────────
+const SITES_DEFAULT = {
+  V000: "기획운영팀(본사)", V001: "강원빌딩",          V002: "사계절한정식",
+  V003: "신한은행(서초)",   V004: "장안면옥",          V005: "한티옥(방이)",
+  V006: "청담우리동물병원", V007: "미니쉬치과병원",    V008: "쥬비스(삼성)",
+  V009: "모모빌딩",         V010: "곽생로여성의원",    V011: "금돈옥(청담)",
+  V012: "금돈옥(잠실)",     V013: "써브라임",          V014: "더캐리",
+  V015: "강서푸른빛성모어린이병원",                    V016: "SC제일은행PPC(압구정)",
+};
+
+// DB 로드된 사업장명을 앱 전역에서 참조 (App 컴포넌트에서 주입)
+let _siteNamesCache = { ...SITES_DEFAULT };
+
 function getSiteName(siteCode) {
-  const map = {
-    V000: "기획운영팀(본사)", V001: "사업장 1", V002: "사업장 2",
-    V003: "사업장 3",        V004: "사업장 4", V005: "사업장 5",
-    V006: "사업장 6",        V007: "사업장 7", V008: "사업장 8",
-    V009: "사업장 9",        V010: "사업장 10", V011: "사업장 11",
-    V012: "사업장 12",       V013: "사업장 13", V014: "사업장 14",
-    V015: "사업장 15",       V016: "사업장 16",
-  };
-  return map[siteCode] || siteCode;
+  return _siteNamesCache[siteCode] || SITES_DEFAULT[siteCode] || siteCode;
+}
+
+function updateSiteNamesCache(map) {
+  _siteNamesCache = { ...SITES_DEFAULT, ...map };
 }
 
 function getToday() {
@@ -327,10 +335,15 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
   const siteCode = employee?.site_code || "V001";
   const isEdit = !!editReport;
 
+  // 오프라인 임시저장 키
+  const DRAFT_KEY = `mepark_field_draft_${siteCode}_${today}`;
+
   const [siteEmployees, setSiteEmployees] = useState([]);
   const [loadingStaff, setLoadingStaff] = useState(true);
+  const [draftRestored, setDraftRestored] = useState(false);
 
   const [form, setForm] = useState(() => {
+    // 수정 모드면 편집 데이터 우선
     if (editReport) {
       return {
         valet_count: editReport.valet_count || 0,
@@ -345,6 +358,15 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
         }),
       };
     }
+    // 임시저장 복원 시도
+    try {
+      const saved = localStorage.getItem(`mepark_field_draft_${siteCode}_${today}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // images는 Storage URL만 복원 (File 객체 없음 — path 없는 임시 URL은 제외)
+        return { ...parsed, images: [] };
+      }
+    } catch (_) {}
     return {
       valet_count: 0, valet_amount: 0, staff_count: 0, selectedStaff: [], memo: "", images: [],
       payList: PAYMENT_TYPES.map(pt => ({ payment_type: pt.key, count: 0, amount: 0 })),
@@ -371,6 +393,41 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
     }
     loadSiteEmployees();
   }, [siteCode]);
+
+  // 오프라인 임시저장 — form 변경 시 1초 디바운스로 localStorage 저장 (신규 작성 모드만)
+  useEffect(() => {
+    if (isEdit) return; // 수정 모드는 임시저장 안 함
+    const t = setTimeout(() => {
+      try {
+        const toSave = {
+          valet_count: form.valet_count,
+          valet_amount: form.valet_amount,
+          staff_count: form.staff_count,
+          selectedStaff: form.selectedStaff,
+          memo: form.memo,
+          payList: form.payList,
+          // images는 Storage에 이미 올라갔으므로 저장
+          images: form.images,
+          _savedAt: new Date().toISOString(),
+        };
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(toSave));
+      } catch (_) {}
+    }, 1000);
+    return () => clearTimeout(t);
+  }, [form, isEdit, DRAFT_KEY]);
+
+  // 임시저장 복원 알림 표시
+  useEffect(() => {
+    if (isEdit) return;
+    try {
+      const saved = localStorage.getItem(DRAFT_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const hasData = parsed.valet_count > 0 || parsed.valet_amount > 0 || parsed.memo?.trim() || (parsed.selectedStaff?.length > 0);
+        if (hasData) setDraftRestored(true);
+      }
+    } catch (_) {}
+  }, [isEdit, DRAFT_KEY]);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -413,7 +470,16 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
     }
   }
 
-  function removeImage(idx) {
+  async function removeImage(idx) {
+    const img = form.images[idx];
+    // Storage에서 실제 파일 삭제 (path가 있는 경우)
+    if (img?.path) {
+      try {
+        await supabase.storage.from("daily-report-images").remove([img.path]);
+      } catch (e) {
+        console.warn("Storage 삭제 실패 (무시):", e);
+      }
+    }
     setForm(f => ({ ...f, images: f.images.filter((_, i) => i !== idx) }));
   }
 
@@ -467,6 +533,8 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
         if (pe) throw pe;
       }
       onSave();
+      // 성공 시 임시저장 삭제
+      try { localStorage.removeItem(DRAFT_KEY); } catch (_) {}
     } catch (e) {
       console.error("일보 저장 실패:", e);
       setError(e.message || "저장에 실패했습니다. 다시 시도해주세요.");
@@ -503,6 +571,35 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
 
       {/* 폼 */}
       <div style={{ padding: "16px 16px 120px" }}>
+        {/* 임시저장 복원 알림 */}
+        {draftRestored && !isEdit && (
+          <div style={{
+            background: "#fff8e1", border: `1.5px solid ${C.gold}`,
+            borderRadius: 14, padding: "12px 16px", marginBottom: 14,
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#7a5c00" }}>
+              💾 오늘 작성 중이던 임시저장 내용이 복원됐어요
+            </div>
+            <button
+              onClick={() => {
+                try { localStorage.removeItem(DRAFT_KEY); } catch (_) {}
+                setDraftRestored(false);
+                setForm({
+                  valet_count: 0, valet_amount: 0, staff_count: 0, selectedStaff: [], memo: "", images: [],
+                  payList: PAYMENT_TYPES.map(pt => ({ payment_type: pt.key, count: 0, amount: 0 })),
+                });
+              }}
+              style={{
+                background: "transparent", border: `1.5px solid ${C.gold}`,
+                borderRadius: 8, padding: "4px 10px",
+                fontSize: 12, fontWeight: 700, color: "#7a5c00", fontFamily: FONT,
+                whiteSpace: "nowrap",
+              }}
+            >초기화</button>
+          </div>
+        )}
+
         {/* 기본 정보 */}
         <div style={sectionStyle}>
           {sectionTitle("📍", "기본 정보")}
@@ -1045,6 +1142,24 @@ export default function App() {
   const [page, setPage] = useState("home");
   const [pageData, setPageData] = useState(null);
   const [toast, setToast] = useState(null);
+
+  // 사업장명 DB 로드 (site_details.site_name 컬럼 — 없으면 기본값 유지)
+  useEffect(() => {
+    async function loadSiteNames() {
+      try {
+        const { data } = await supabase
+          .from("site_details")
+          .select("site_code, site_name")
+          .not("site_name", "is", null);
+        if (data && data.length > 0) {
+          const map = {};
+          data.forEach(r => { if (r.site_name) map[r.site_code] = r.site_name; });
+          updateSiteNamesCache(map);
+        }
+      } catch (_) { /* site_name 컬럼 없으면 기본값 유지 */ }
+    }
+    loadSiteNames();
+  }, []);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
