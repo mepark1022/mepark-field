@@ -152,13 +152,28 @@ function LoginPage({ onLogin }) {
     if (!empId.trim()) { setError("사번을 입력해주세요."); return; }
     setError("");
     setLoading(true);
+    const id = empId.trim().toUpperCase();
     try {
-      // RPC로 사번 확인 (RLS 우회 — SECURITY DEFINER)
+      // ① profiles 테이블에서 사번 확인 (crew 계정)
+      const { data: profData } = await supabase
+        .from("profiles")
+        .select("name, emp_no, site_code")
+        .or(`emp_no.eq.${id},email.eq.${id.toLowerCase()}@mepark.internal`)
+        .maybeSingle();
+
+      if (profData?.name) {
+        localStorage.setItem(STORAGE_EMP_ID_KEY, id);
+        setEmpName(profData.name);
+        setStep("pin");
+        return;
+      }
+
+      // ② fallback: employees 테이블 (기존 field_member)
       const { data, error: dbErr } = await supabase
-        .rpc("check_field_employee", { p_emp_no: empId.trim().toUpperCase() });
+        .rpc("check_field_employee", { p_emp_no: id });
       if (dbErr || !data || !data.name) { setError("등록되지 않은 사번입니다. 관리자에게 문의하세요."); return; }
       if (data.status !== "active") { setError("재직 중인 직원이 아닙니다. 관리자에게 문의하세요."); return; }
-      localStorage.setItem(STORAGE_EMP_ID_KEY, empId.trim().toUpperCase());
+      localStorage.setItem(STORAGE_EMP_ID_KEY, id);
       setEmpName(data.name);
       setStep("pin");
     } catch (e) {
@@ -180,9 +195,28 @@ function LoginPage({ onLogin }) {
   async function handlePinLogin(pinValue) {
     setLoading(true);
     setError("");
+    const id = empId.trim().toUpperCase();
     try {
-      const result = await callAdminApi({ action: "field_login", emp_id: empId.trim().toUpperCase(), pin: pinValue });
-      if (result.error) throw new Error(result.error);
+      // ① Supabase Auth 직접 로그인 (crew 계정: 사번@mepark.internal + 전화번호뒷4자리)
+      const email = `${id.toLowerCase()}@mepark.internal`;
+      const { data: authData, error: authErr } = await supabase.auth.signInWithPassword({ email, password: pinValue });
+
+      if (!authErr && authData?.user) {
+        // profiles에서 사업장/이름 읽기
+        const { data: prof } = await supabase.from("profiles")
+          .select("name, site_code, role, emp_no").eq("id", authData.user.id).single();
+        if (prof) {
+          onLogin({
+            session: authData.session,
+            employee: { name: prof.name, emp_no: prof.emp_no || id, emp_id: prof.emp_no || id, site_code: prof.site_code, role: prof.role }
+          });
+          return;
+        }
+      }
+
+      // ② fallback: 기존 field_login Edge Function (field_member)
+      const result = await callAdminApi({ action: "field_login", emp_id: id, pin: pinValue });
+      if (result.error) throw new Error("PIN이 올바르지 않습니다.");
       if (!result.access_token) throw new Error("로그인 처리 실패");
       const { data: sessionData, error: sessionErr } = await supabase.auth.setSession({
         access_token: result.access_token, refresh_token: result.refresh_token,
@@ -190,7 +224,7 @@ function LoginPage({ onLogin }) {
       if (sessionErr) throw sessionErr;
       onLogin({ session: sessionData.session, employee: result.employee });
     } catch (e) {
-      setError(e.message || "PIN이 올바르지 않습니다.");
+      setError("PIN이 올바르지 않습니다.");
       setPin("");
     } finally {
       setLoading(false);
@@ -1177,15 +1211,29 @@ export default function App() {
 
   async function loadEmployee(authUserId) {
     try {
+      // ① employees 테이블 시도 (기존 field_member)
       const { data, error } = await supabase
         .from("employees")
         .select("id, name, emp_no, site_code_1, work_type, status")
         .eq("auth_user_id", authUserId)
         .single();
-      if (error || !data) throw new Error("직원 정보를 찾을 수 없습니다.");
-      // DB 컬럼명 → 앱 내부 통일명으로 매핑
-      setEmployee({ ...data, emp_id: data.emp_no, site_code: data.site_code_1 });
-      setAuthState("home");
+      if (!error && data) {
+        setEmployee({ ...data, emp_id: data.emp_no, site_code: data.site_code_1 });
+        setAuthState("home");
+        return;
+      }
+      // ② profiles 테이블 fallback (crew 계정)
+      const { data: prof, error: profErr } = await supabase
+        .from("profiles")
+        .select("name, emp_no, site_code, role")
+        .eq("id", authUserId)
+        .single();
+      if (!profErr && prof && (prof.role === "crew" || prof.role === "admin" || prof.role === "super_admin")) {
+        setEmployee({ name: prof.name, emp_no: prof.emp_no, emp_id: prof.emp_no, site_code: prof.site_code, role: prof.role });
+        setAuthState("home");
+        return;
+      }
+      throw new Error("직원 정보를 찾을 수 없습니다.");
     } catch (e) {
       console.error("직원 정보 로드 실패:", e);
       await supabase.auth.signOut();
