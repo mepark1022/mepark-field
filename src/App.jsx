@@ -369,17 +369,42 @@ function LoginPage({ onLogin }) {
       alignItems: "center", justifyContent: "center",
       padding: "24px 20px",
     }}>
-      {/* 로고 */}
+      {/* 미팍티켓 공식 로고 */}
       <div style={{ textAlign: "center", marginBottom: 36 }}>
+        {/* P 아이콘 */}
         <div style={{
-          width: 80, height: 80, borderRadius: 24, background: C.gold,
+          width: 88, height: 88, borderRadius: 24,
+          background: "#fff", border: "3.5px solid #1A1D2B",
+          position: "relative", overflow: "hidden",
           display: "flex", alignItems: "center", justifyContent: "center",
-          margin: "0 auto 16px", boxShadow: `0 8px 32px ${C.gold}40`,
+          margin: "0 auto 18px",
+          boxShadow: "0 10px 40px rgba(0,0,0,0.35)",
         }}>
-          <span style={{ fontSize: 36, fontWeight: 900, color: C.navy }}>🎫</span>
+          {/* 골드 바 (하단) */}
+          <div style={{
+            position: "absolute", bottom: 0, left: 0, right: 0,
+            height: 22, background: C.gold,
+          }} />
+          {/* P 글자 */}
+          <span style={{
+            fontFamily: "Outfit, Arial, sans-serif",
+            fontSize: 44, fontWeight: 900, color: "#1A1D2B",
+            position: "relative", zIndex: 1, marginTop: -10,
+            lineHeight: 1,
+          }}>P</span>
         </div>
-        <div style={{ color: C.white, fontSize: 26, fontWeight: 900, letterSpacing: "-0.5px" }}>미팍티켓</div>
-        <div style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, marginTop: 4 }}>현장크루 마감보고 앱 {APP_VERSION}</div>
+        {/* 미팍Ticket 텍스트 */}
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "center", gap: 2, marginBottom: 6 }}>
+          <span style={{
+            fontFamily: "'Noto Sans KR', sans-serif",
+            fontSize: 28, fontWeight: 900, color: "#fff", letterSpacing: "-0.5px",
+          }}>미팍</span>
+          <span style={{
+            fontFamily: "Outfit, Arial, sans-serif",
+            fontSize: 28, fontWeight: 700, color: C.gold, letterSpacing: "-0.5px",
+          }}>Ticket</span>
+        </div>
+        <div style={{ color: "rgba(255,255,255,0.55)", fontSize: 13 }}>현장크루 마감보고 앱 {APP_VERSION}</div>
       </div>
 
       {/* 카드 */}
