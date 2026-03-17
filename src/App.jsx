@@ -689,6 +689,10 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
   const [partInput, setPartInput] = useState(""); // 알바 이름 입력
   const [draftRestored, setDraftRestored] = useState(false);
   const [valetRate, setValetRate] = useState(0); // 사업장 발렛 단가
+  const [extraEnabled, setExtraEnabled] = useState(false); // 추가근무 ON/OFF
+  const [extraTypes, setExtraTypes] = useState([]); // 유형 목록
+  // extraWork: { [emp_no]: { typeId, typeName, payKind, start, end, amount } }
+  const [extraWork, setExtraWork] = useState({});
 
   const [form, setForm] = useState(() => {
     // 수정 모드면 편집 데이터 우선
@@ -779,6 +783,20 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
       } catch (_) {}
     }
     loadValetRate();
+  }, [siteCode]);
+
+  // 사업장 추가근무 설정 로드
+  useEffect(() => {
+    async function loadExtraConfig() {
+      try {
+        const { data: cfg } = await supabase.from("site_extra_config").select("is_enabled").eq("site_code", siteCode).maybeSingle();
+        if (!cfg?.is_enabled) return;
+        setExtraEnabled(true);
+        const { data: types } = await supabase.from("site_extra_types").select("*").eq("site_code", siteCode).order("sort_order");
+        if (types) setExtraTypes(types);
+      } catch (_) {}
+    }
+    loadExtraConfig();
   }, [siteCode]);
 
   // 오프라인 임시저장 — form 변경 시 1초 디바운스로 localStorage 저장 (신규 작성 모드만)
@@ -944,13 +962,22 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
       }
       // 근무직원 저장 (daily_report_staff — 근태현황 연동)
       await supabase.from("daily_report_staff").delete().eq("report_id", reportId);
-      const staffRows = (form.selectedStaff || []).map(s => ({
-        report_id: reportId,
-        employee_id: s.employee_id || null,
-        name_raw: s.duty === "part" ? s.name : null,
-        staff_type: s.duty || "site",
-        work_hours: 0,
-      }));
+      const staffRows = (form.selectedStaff || []).map(s => {
+        const ex = extraWork[s.emp_no];
+        return {
+          report_id: reportId,
+          employee_id: s.employee_id || null,
+          name_raw: s.duty === "part" ? s.name : null,
+          staff_type: s.duty || "site",
+          work_hours: 0,
+          extra_type_id: ex?.typeId || null,
+          extra_type_name: ex?.typeName || null,
+          extra_start: ex?.start || null,
+          extra_end: ex?.end || null,
+          extra_minutes: ex?.minutes || null,
+          extra_amount: ex?.amount || null,
+        };
+      });
       if (staffRows.length > 0) {
         const { error: se } = await supabase.from("daily_report_staff").insert(staffRows);
         if (se) console.error("staff 저장 실패:", se);
@@ -1159,6 +1186,134 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
               </>
             )
           )}
+
+          {/* ── 추가근무 입력 섹션 (extraEnabled + site 직원 선택됨) ── */}
+          {extraEnabled && extraTypes.length > 0 && form.selectedStaff.filter(s => s.duty === "site").length > 0 && (() => {
+            const siteStaff = form.selectedStaff.filter(s => s.duty === "site");
+            const HALF_HOURS = [];
+            for (let h = 0; h < 24; h++) for (let m of [0, 30]) HALF_HOURS.push(`${String(h).padStart(2,"0")}:${m===0?"00":"30"}`);
+            const calcExtra = (type, startStr, endStr) => {
+              if (!type) return 0;
+              if (type.pay_kind === "fixed") return type.fixed_amount || 0;
+              if (!startStr || !endStr) return 0;
+              const [sh, sm] = startStr.split(":").map(Number);
+              const [eh, em] = endStr.split(":").map(Number);
+              const mins = (eh * 60 + em) - (sh * 60 + sm);
+              if (mins <= 0) return 0;
+              const pay = Math.round((type.hourly_rate || 0) * mins / 60);
+              const meal = (type.meal_trigger && mins > type.meal_trigger) ? (type.meal_amount || 0) : 0;
+              return pay + meal;
+            };
+            const setEmpExtra = (empNo, patch) => {
+              setExtraWork(prev => {
+                const cur = prev[empNo] || {};
+                const next = { ...cur, ...patch };
+                if (patch.typeId !== undefined) {
+                  const t = extraTypes.find(x => x.id === patch.typeId);
+                  next.typeName = t?.type_name || "";
+                  next.payKind = t?.pay_kind || "";
+                  if (t?.pay_kind === "fixed") { next.start = null; next.end = null; next.minutes = t.fixed_min; next.amount = t.fixed_amount; }
+                }
+                if (next.payKind === "hourly" && next.start && next.end) {
+                  const t = extraTypes.find(x => x.id === next.typeId);
+                  const [sh, sm] = next.start.split(":").map(Number);
+                  const [eh, em] = next.end.split(":").map(Number);
+                  const mins = (eh*60+em)-(sh*60+sm);
+                  next.minutes = mins > 0 ? mins : 0;
+                  next.amount = calcExtra(t, next.start, next.end);
+                }
+                return { ...prev, [empNo]: next };
+              });
+            };
+            return (
+              <div style={{ marginTop: 14, borderTop: `2px solid #E8E0FF`, paddingTop: 14 }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: "#6D28D9", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ background: "#EDE9FE", borderRadius: 8, padding: "2px 8px" }}>⏰ 추가근무 입력</span>
+                  <span style={{ fontSize: 10, color: "#A78BFA", fontWeight: 600 }}>해당 직원만 선택</span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {siteStaff.map(s => {
+                    const ex = extraWork[s.emp_no] || {};
+                    const selType = extraTypes.find(t => t.id === ex.typeId);
+                    return (
+                      <div key={s.emp_no} style={{ background: ex.typeId ? "#F5F3FF" : C.white, border: `1.5px solid ${ex.typeId ? "#A78BFA" : C.border}`, borderRadius: 12, overflow: "hidden" }}>
+                        {/* 직원 헤더 */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: ex.typeId ? "1px solid #E8E0FF" : "none" }}>
+                          <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#43A047", flexShrink: 0 }} />
+                          <span style={{ fontSize: 13, fontWeight: 700, color: C.dark, flex: 1 }}>{s.name}</span>
+                          {ex.typeId && (
+                            <button onClick={() => setExtraWork(p => { const n = { ...p }; delete n[s.emp_no]; return n; })} style={{ fontSize: 10, padding: "3px 8px", borderRadius: 6, border: `1px solid ${C.border}`, background: "#fff", color: C.gray, cursor: "pointer", fontFamily: FONT }}>초기화</button>
+                          )}
+                        </div>
+                        {/* 유형 선택 (라디오) */}
+                        <div style={{ padding: "8px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+                          {/* 없음 옵션 */}
+                          <button onClick={() => setExtraWork(p => { const n = { ...p }; delete n[s.emp_no]; return n; })} style={{
+                            display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 8, cursor: "pointer", fontFamily: FONT,
+                            border: `1.5px solid ${!ex.typeId ? "#6D28D9" : C.border}`, background: !ex.typeId ? "#EDE9FE" : "#fff", textAlign: "left",
+                          }}>
+                            <div style={{ width: 14, height: 14, borderRadius: "50%", border: `2px solid ${!ex.typeId ? "#6D28D9" : C.border}`, background: !ex.typeId ? "#6D28D9" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                              {!ex.typeId && <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#fff" }} />}
+                            </div>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: !ex.typeId ? "#6D28D9" : C.gray }}>없음</span>
+                          </button>
+                          {extraTypes.map(t => {
+                            const isSel = ex.typeId === t.id;
+                            return (
+                              <div key={t.id} style={{ border: `1.5px solid ${isSel ? "#6D28D9" : C.border}`, borderRadius: 10, background: isSel ? "#F5F3FF" : "#fff", overflow: "hidden" }}>
+                                <button onClick={() => setEmpExtra(s.emp_no, { typeId: t.id })} style={{
+                                  display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 10px", width: "100%", border: "none", background: "transparent", cursor: "pointer", fontFamily: FONT, textAlign: "left",
+                                }}>
+                                  <div style={{ width: 14, height: 14, borderRadius: "50%", border: `2px solid ${isSel ? "#6D28D9" : C.border}`, background: isSel ? "#6D28D9" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>
+                                    {isSel && <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#fff" }} />}
+                                  </div>
+                                  <div style={{ flex: 1 }}>
+                                    <div style={{ fontSize: 12, fontWeight: 700, color: isSel ? "#4C1D95" : C.dark }}>{t.type_name}</div>
+                                    <div style={{ fontSize: 10, color: C.gray, marginTop: 1 }}>
+                                      {t.pay_kind === "fixed" ? `${t.fixed_min}분 고정 · ${(t.fixed_amount||0).toLocaleString("ko-KR")}원` : `30분 단위 · ${(t.hourly_rate||0).toLocaleString("ko-KR")}원/h`}
+                                      {t.meal_trigger && <span style={{ color: "#D97706" }}> · {t.meal_trigger}분 초과 시 식대+{(t.meal_amount||0).toLocaleString("ko-KR")}원</span>}
+                                    </div>
+                                  </div>
+                                </button>
+                                {/* 시급제: 시간 입력 */}
+                                {isSel && t.pay_kind === "hourly" && (
+                                  <div style={{ padding: "0 10px 10px", display: "flex", alignItems: "center", gap: 6 }}>
+                                    <span style={{ fontSize: 11, color: C.gray, flexShrink: 0 }}>시작</span>
+                                    <select value={ex.start || ""} onChange={e => setEmpExtra(s.emp_no, { start: e.target.value })} style={{ flex: 1, padding: "6px 8px", border: `1.5px solid #A78BFA`, borderRadius: 8, fontSize: 12, fontWeight: 600, fontFamily: FONT, background: "#fff", outline: "none" }}>
+                                      <option value="">선택</option>
+                                      {HALF_HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+                                    </select>
+                                    <span style={{ fontSize: 11, color: C.gray }}>—</span>
+                                    <span style={{ fontSize: 11, color: C.gray, flexShrink: 0 }}>종료</span>
+                                    <select value={ex.end || ""} onChange={e => setEmpExtra(s.emp_no, { end: e.target.value })} style={{ flex: 1, padding: "6px 8px", border: `1.5px solid #A78BFA`, borderRadius: 8, fontSize: 12, fontWeight: 600, fontFamily: FONT, background: "#fff", outline: "none" }}>
+                                      <option value="">선택</option>
+                                      {HALF_HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+                                    </select>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                          {/* 금액 계산 결과 */}
+                          {ex.typeId && (
+                            <div style={{ background: C.navy, borderRadius: 8, padding: "6px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                              <span style={{ fontSize: 11, color: "rgba(255,255,255,0.7)" }}>
+                                {selType?.pay_kind === "fixed" ? `${selType.fixed_min}분` : ex.minutes > 0 ? `${ex.minutes}분 (${(ex.minutes/60).toFixed(1)}h)` : "시간 선택"}
+                              </span>
+                              <span style={{ fontSize: 13, fontWeight: 800, color: ex.amount > 0 ? "#F5B731" : "rgba(255,255,255,0.4)" }}>
+                                {ex.amount > 0 ? `+${ex.amount.toLocaleString("ko-KR")}원` : "-"}
+                                {selType?.meal_trigger && ex.minutes > selType.meal_trigger && <span style={{ fontSize: 10, color: "#86EFAC", marginLeft: 4 }}>🍱포함</span>}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* ── 본사지원 탭 ── */}
           {dutyTab === "hq" && (
