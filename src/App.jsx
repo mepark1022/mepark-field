@@ -198,24 +198,53 @@ function LoginPage({ onLogin }) {
     setPhoneLoading(true);
     setPhoneError("");
     try {
-      const result = await callAdminApi({ action: "phone_login", phone: digits });
-      if (result.error) {
+      // Edge Function 없이 Supabase RPC로 직접 처리
+      const { data: empRows, error: rpcErr } = await supabase.rpc("get_emp_by_phone", { p_phone: digits });
+      if (rpcErr) throw new Error("서버 오류: " + rpcErr.message);
+      if (!empRows || empRows.length === 0) {
         const newFail = failCount + 1;
         setFailCount(newFail);
-        if (newFail >= 5) {
-          setLockUntil(Date.now() + 3 * 60 * 1000);
-          setFailCount(0);
-          throw new Error("5회 실패로 3분간 잠금됩니다.");
-        }
-        throw new Error(result.error);
+        if (newFail >= 5) { setLockUntil(Date.now() + 3 * 60 * 1000); setFailCount(0); throw new Error("5회 실패로 3분간 잠금됩니다."); }
+        throw new Error("등록되지 않은 전화번호입니다.");
       }
-      if (!result.access_token) throw new Error("로그인 처리 실패");
-      const { data: sessionData, error: sessionErr } = await supabase.auth.setSession({
-        access_token: result.access_token, refresh_token: result.refresh_token,
-      });
-      if (sessionErr) throw sessionErr;
-      setFailCount(0);
-      onLogin({ session: sessionData.session, employee: result.employee });
+      const emp = empRows[0];
+      const pin4 = emp.pin4;
+      const empNo = emp.emp_no;
+      const empUUID = emp.emp_id;
+
+      // ① @mepark.internal 계정 시도 (crew/admin)
+      const email1 = `${empNo.toLowerCase()}@mepark.internal`;
+      const pass1 = `mp${pin4}`;
+      const { data: auth1, error: err1 } = await supabase.auth.signInWithPassword({ email: email1, password: pass1 });
+      if (!err1 && auth1?.session) {
+        setFailCount(0);
+        onLogin({ session: auth1.session, employee: { emp_no: empNo, name: emp.emp_name, site_code: emp.site_code, role: "crew" } });
+        return;
+      }
+
+      // ② @field.mepark.internal 계정 시도 (field_member)
+      const email2 = `${empNo.toLowerCase()}@field.mepark.internal`;
+      const pass2 = `MP_FIELD_${pin4}_${empUUID.slice(0, 8)}`;
+      const { data: auth2, error: err2 } = await supabase.auth.signInWithPassword({ email: email2, password: pass2 });
+      if (!err2 && auth2?.session) {
+        setFailCount(0);
+        onLogin({ session: auth2.session, employee: { emp_no: empNo, name: emp.emp_name, site_code: emp.site_code, role: "field_member" } });
+        return;
+      }
+
+      // 둘 다 실패 → field_login Edge Function으로 PIN 재설정 시도
+      const result = await callAdminApi({ action: "field_login", emp_id: empNo, pin: pin4 });
+      if (!result.error && result.access_token) {
+        const { data: sessionData } = await supabase.auth.setSession({ access_token: result.access_token, refresh_token: result.refresh_token });
+        setFailCount(0);
+        onLogin({ session: sessionData.session, employee: result.employee });
+        return;
+      }
+
+      const newFail = failCount + 1;
+      setFailCount(newFail);
+      if (newFail >= 5) { setLockUntil(Date.now() + 3 * 60 * 1000); setFailCount(0); throw new Error("5회 실패로 3분간 잠금됩니다."); }
+      throw new Error("로그인 실패. 관리자에게 문의하세요.");
     } catch (e) {
       setPhoneError(e.message || "등록되지 않은 전화번호입니다.");
     } finally {
