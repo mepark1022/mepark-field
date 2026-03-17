@@ -210,7 +210,7 @@ function LoginPage({ onLogin }) {
       const emp = empRows[0];
       const pin4 = emp.pin4;
       const empNo = emp.emp_no;
-      const empUUID = emp.emp_id;
+      const empUUID = emp.emp_uuid || emp.emp_id || "";
 
       // ① @mepark.internal 계정 시도 (crew/admin)
       const email1 = `${empNo.toLowerCase()}@mepark.internal`;
@@ -224,7 +224,8 @@ function LoginPage({ onLogin }) {
 
       // ② @field.mepark.internal 계정 시도 (field_member)
       const email2 = `${empNo.toLowerCase()}@field.mepark.internal`;
-      const pass2 = `MP_FIELD_${pin4}_${empUUID.slice(0, 8)}`;
+      const uuidPrefix = empUUID ? empUUID.slice(0, 8) : empNo.slice(-8);
+      const pass2 = `MP_FIELD_${pin4}_${uuidPrefix}`;
       const { data: auth2, error: err2 } = await supabase.auth.signInWithPassword({ email: email2, password: pass2 });
       if (!err2 && auth2?.session) {
         setFailCount(0);
