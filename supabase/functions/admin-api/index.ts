@@ -241,8 +241,8 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ success: true, results, successCount, totalCount: accounts.length }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // ── phone_login: 전화번호 → ERP DB에서 emp_no 조회 → ERP Auth 로그인 ──
-    // ERP_SUPABASE_URL / ERP_SERVICE_ROLE_KEY 환경변수 사용 (ERP 프로젝트 cross-project 접근)
+    // ── phone_login: 전화번호 → emp_no 조회 → signInWithPassword ──
+    // 같은 Supabase 프로젝트에 employees 테이블 존재 (ERP와 동일 프로젝트)
     if (action === "phone_login") {
       const { phone } = body;
       if (!phone) {
@@ -251,20 +251,11 @@ Deno.serve(async (req) => {
         });
       }
 
-      // ERP 프로젝트 접속 (employees 테이블 + ERP Auth 가 있는 프로젝트)
-      // 환경변수 ERP_SUPABASE_URL, ERP_SERVICE_ROLE_KEY 없으면 현재 프로젝트 사용 (단일 프로젝트 구성 호환)
-      const erpUrl = Deno.env.get("ERP_SUPABASE_URL") || Deno.env.get("SUPABASE_URL") || "";
-      const erpKey = Deno.env.get("ERP_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-
-      if (!erpUrl || !erpKey) {
-        return new Response(JSON.stringify({ error: "서버 설정 오류: ERP 연결 정보가 없습니다." }), {
-          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      const erpClient = createClient(erpUrl, erpKey, {
-        auth: { autoRefreshToken: false, persistSession: false },
-      });
+      const adminClient = createClient(
+        Deno.env.get("SUPABASE_URL") ?? "",
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+        { auth: { autoRefreshToken: false, persistSession: false } }
+      );
 
       // 숫자만 추출
       const digits = phone.replace(/\D/g, "");
@@ -274,7 +265,7 @@ Deno.serve(async (req) => {
         : digits;
 
       // employees 테이블에서 전화번호로 직원 조회 (숫자형/하이픈형 둘 다 허용)
-      const { data: emp, error: empErr } = await erpClient
+      const { data: emp, error: empErr } = await adminClient
         .from("employees")
         .select("id, name, emp_no, site_code_1, work_code, phone, status, auth_id")
         .in("phone", [digits, formatted])
@@ -305,22 +296,21 @@ Deno.serve(async (req) => {
       }
 
       const password = `mp${pin4}`;
-      // ERP Auth 이메일 (사번@mepark.internal)
       const email = `${emp.emp_no.toLowerCase()}@mepark.internal`;
 
-      // ERP Auth로 로그인
-      const { data: authData, error: authErr } = await erpClient.auth.signInWithPassword({ email, password });
+      // Supabase Auth 로그인 시도
+      const { data: authData, error: authErr } = await adminClient.auth.signInWithPassword({ email, password });
 
       if (authErr || !authData?.session) {
         // auth 계정 없으면 → field.mepark.internal 시도 (field_member 계정)
         const fieldEmail = `${emp.emp_no.toLowerCase()}@field.mepark.internal`;
         const fieldPass = `MP_FIELD_${pin4}_${emp.id.slice(0, 8)}`;
-        const { data: fieldAuth, error: fieldErr } = await erpClient.auth.signInWithPassword({
+        const { data: fieldAuth, error: fieldErr } = await adminClient.auth.signInWithPassword({
           email: fieldEmail, password: fieldPass,
         });
         if (fieldErr || !fieldAuth?.session) {
-          // 아직 계정이 없으면 자동 생성
-          const { data: newUser, error: createErr } = await erpClient.auth.admin.createUser({
+          // 계정 없으면 자동 생성
+          const { data: newUser, error: createErr } = await adminClient.auth.admin.createUser({
             email: fieldEmail, password: fieldPass, email_confirm: true,
             user_metadata: { emp_id: emp.emp_no, name: emp.name, role: "field_member", site_code: emp.site_code_1 },
           });
@@ -329,7 +319,7 @@ Deno.serve(async (req) => {
               status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
           }
-          const { data: retryAuth } = await erpClient.auth.signInWithPassword({ email: fieldEmail, password: fieldPass });
+          const { data: retryAuth } = await adminClient.auth.signInWithPassword({ email: fieldEmail, password: fieldPass });
           if (!retryAuth?.session) {
             return new Response(JSON.stringify({ error: "로그인 처리 실패. 관리자에게 문의하세요." }), {
               status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
