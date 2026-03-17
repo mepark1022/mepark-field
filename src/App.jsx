@@ -264,11 +264,10 @@ function LoginPage({ onLogin }) {
         }
       }
 
-      // ③ empno@field.mepark.internal 시도 (field_member)
-      const uuidPrefix = empUUID ? empUUID.slice(0, 8) : empNo.slice(-8);
+      // ③ empno@field.mepark.internal 시도 (field_member) — 비밀번호: mp{pin4}
       const { data: auth3, error: err3 } = await supabase.auth.signInWithPassword({
         email: `${empNo.toLowerCase()}@field.mepark.internal`,
-        password: `MP_FIELD_${pin4}_${uuidPrefix}`,
+        password: `mp${pin4}`,
       });
       if (!err3 && auth3?.session) {
         setFailCount(0);
