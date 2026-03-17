@@ -28,7 +28,7 @@ const DUTY_TYPES = [
   { key: "site",    label: "해당매장",  color: "#1428A0", bg: "#eef0ff" },
   { key: "hq",      label: "본사지원",  color: "#E97132", bg: "#fff4ec" },
   { key: "part",    label: "알바지원",  color: "#43A047", bg: "#edf7ee" },
-  { key: "extra",   label: "추가근무",  color: "#8B5CF6", bg: "#f3f0ff" },
+  { key: "extra",   label: "비번투입",  color: "#8B5CF6", bg: "#f3f0ff" },
 ];
 
 const PAYMENT_TYPES = [
@@ -1228,7 +1228,7 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
             return (
               <div style={{ marginTop: 14, borderTop: `2px solid #E8E0FF`, paddingTop: 14 }}>
                 <div style={{ fontSize: 12, fontWeight: 800, color: "#6D28D9", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ background: "#EDE9FE", borderRadius: 8, padding: "2px 8px" }}>⏰ 추가근무 입력</span>
+                  <span style={{ background: "#EDE9FE", borderRadius: 8, padding: "2px 8px" }}>💰 추가수당 입력</span>
                   <span style={{ fontSize: 10, color: "#A78BFA", fontWeight: 600 }}>해당 직원만 선택</span>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
