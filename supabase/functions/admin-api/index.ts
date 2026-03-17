@@ -309,15 +309,24 @@ Deno.serve(async (req) => {
           email: fieldEmail, password: fieldPass,
         });
         if (fieldErr || !fieldAuth?.session) {
-          // 계정 없으면 자동 생성
+          // 계정 생성 시도 (이미 존재하면 비밀번호 업데이트 후 로그인)
           const { data: newUser, error: createErr } = await adminClient.auth.admin.createUser({
             email: fieldEmail, password: fieldPass, email_confirm: true,
             user_metadata: { emp_id: emp.emp_no, name: emp.name, role: "field_member", site_code: emp.site_code_1 },
           });
           if (createErr) {
-            return new Response(JSON.stringify({ error: "계정 생성 실패: " + createErr.message }), {
-              status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-            });
+            // 이미 존재하는 계정이면 비밀번호 강제 업데이트
+            if (createErr.message.includes("already been registered") || createErr.message.includes("already exists")) {
+              const { data: userList } = await adminClient.auth.admin.listUsers({ perPage: 1000 });
+              const existing = (userList as any)?.users?.find((u: any) => u.email === fieldEmail);
+              if (existing?.id) {
+                await adminClient.auth.admin.updateUserById(existing.id, { password: fieldPass });
+              }
+            } else {
+              return new Response(JSON.stringify({ error: "계정 처리 실패: " + createErr.message }), {
+                status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+              });
+            }
           }
           const { data: retryAuth } = await adminClient.auth.signInWithPassword({ email: fieldEmail, password: fieldPass });
           if (!retryAuth?.session) {
