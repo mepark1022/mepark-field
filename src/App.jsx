@@ -182,9 +182,10 @@ function LoginPage({ onLogin }) {
     setError("");
     const id = empId.trim().toUpperCase();
     try {
-      // ① Supabase Auth 직접 로그인 (crew 계정: 사번@mepark.internal + 전화번호뒷4자리)
+      // ① Supabase Auth 직접 로그인 (crew 계정: 사번@mepark.internal + "mp"+전화번호뒷4자리)
       const email = `${id.toLowerCase()}@mepark.internal`;
-      const { data: authData, error: authErr } = await supabase.auth.signInWithPassword({ email, password: pinValue });
+      const password = `mp${pinValue}`;
+      const { data: authData, error: authErr } = await supabase.auth.signInWithPassword({ email, password });
 
       if (!authErr && authData?.user) {
         // profiles에서 사업장/이름 읽기
