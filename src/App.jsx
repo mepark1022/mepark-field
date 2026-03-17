@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { supabase, callAdminApi } from "./supabase.js";
 
 // ─── 브랜드 컬러 ────────────────────────────────────────────────────────
