@@ -148,6 +148,18 @@ function NumInput({ value, onChange, placeholder, suffix, style: st }) {
 
 // ─── 로그인 화면 ──────────────────────────────────────────────────────────
 function LoginPage({ onLogin }) {
+  // loginMode: "phone"(기본) | "empId"(사번 모드)
+  const [loginMode, setLoginMode] = useState("phone");
+
+  // ── 전화번호 모드 state ──
+  const [phone, setPhone] = useState("");
+  const [phoneLoading, setPhoneLoading] = useState(false);
+  const [phoneError, setPhoneError] = useState("");
+  // 실패 횟수 잠금
+  const [failCount, setFailCount] = useState(0);
+  const [lockUntil, setLockUntil] = useState(null);
+
+  // ── 사번+PIN 모드 state ──
   const [step, setStep] = useState("empId");
   const [empId, setEmpId] = useState(() => localStorage.getItem(STORAGE_EMP_ID_KEY) || "");
   const [pin, setPin]     = useState("");
@@ -155,16 +167,72 @@ function LoginPage({ onLogin }) {
   const [error, setError]   = useState("");
   const [empName, setEmpName] = useState("");
 
+  // 전화번호 자동 포맷 (숫자만 → 010-XXXX-XXXX)
+  function formatPhone(raw) {
+    const d = raw.replace(/\D/g, "").slice(0, 11);
+    if (d.length <= 3) return d;
+    if (d.length <= 7) return `${d.slice(0,3)}-${d.slice(3)}`;
+    return `${d.slice(0,3)}-${d.slice(3,7)}-${d.slice(7)}`;
+  }
+
+  function handlePhoneChange(e) {
+    const formatted = formatPhone(e.target.value);
+    setPhone(formatted);
+    setPhoneError("");
+    // 11자리(010-XXXX-XXXX) 완성 시 자동 로그인
+    if (formatted.replace(/\D/g, "").length === 11) {
+      setTimeout(() => handlePhoneLogin(formatted), 200);
+    }
+  }
+
+  async function handlePhoneLogin(phoneVal) {
+    // 잠금 체크
+    if (lockUntil && Date.now() < lockUntil) {
+      const sec = Math.ceil((lockUntil - Date.now()) / 1000);
+      setPhoneError(`로그인 시도가 너무 많습니다. ${sec}초 후 다시 시도하세요.`);
+      return;
+    }
+    const digits = (phoneVal || phone).replace(/\D/g, "");
+    if (digits.length !== 11) { setPhoneError("전화번호 11자리를 입력해주세요."); return; }
+
+    setPhoneLoading(true);
+    setPhoneError("");
+    try {
+      const result = await callAdminApi({ action: "phone_login", phone: digits });
+      if (result.error) {
+        const newFail = failCount + 1;
+        setFailCount(newFail);
+        if (newFail >= 5) {
+          setLockUntil(Date.now() + 3 * 60 * 1000);
+          setFailCount(0);
+          throw new Error("5회 실패로 3분간 잠금됩니다.");
+        }
+        throw new Error(result.error);
+      }
+      if (!result.access_token) throw new Error("로그인 처리 실패");
+      const { data: sessionData, error: sessionErr } = await supabase.auth.setSession({
+        access_token: result.access_token, refresh_token: result.refresh_token,
+      });
+      if (sessionErr) throw sessionErr;
+      setFailCount(0);
+      onLogin({ session: sessionData.session, employee: result.employee });
+    } catch (e) {
+      setPhoneError(e.message || "등록되지 않은 전화번호입니다.");
+    } finally {
+      setPhoneLoading(false);
+    }
+  }
+
+  // ── 사번 모드 함수 ──
   async function handleEmpIdNext() {
     if (!empId.trim()) { setError("사번을 입력해주세요."); return; }
     const id = empId.trim().toUpperCase();
-    // 사번 형식 체크만 (MP숫자 or MPA숫자)
     if (!/^MP[A-Z]?\d+$/.test(id)) {
       setError("사번 형식이 올바르지 않습니다. (예: MP24101)");
       return;
     }
     localStorage.setItem(STORAGE_EMP_ID_KEY, id);
-    setEmpName(id);   // PIN 화면에 사번 표시
+    setEmpName(id);
     setStep("pin");
   }
 
@@ -182,13 +250,10 @@ function LoginPage({ onLogin }) {
     setError("");
     const id = empId.trim().toUpperCase();
     try {
-      // ① Supabase Auth 직접 로그인 (crew 계정: 사번@mepark.internal + "mp"+전화번호뒷4자리)
       const email = `${id.toLowerCase()}@mepark.internal`;
       const password = `mp${pinValue}`;
       const { data: authData, error: authErr } = await supabase.auth.signInWithPassword({ email, password });
-
       if (!authErr && authData?.user) {
-        // profiles에서 사업장/이름 읽기
         const { data: prof } = await supabase.from("profiles")
           .select("name, site_code, role, emp_no").eq("id", authData.user.id).single();
         if (prof) {
@@ -199,8 +264,6 @@ function LoginPage({ onLogin }) {
           return;
         }
       }
-
-      // ② fallback: 기존 field_login Edge Function (field_member)
       const result = await callAdminApi({ action: "field_login", emp_id: id, pin: pinValue });
       if (result.error) throw new Error("PIN이 올바르지 않습니다.");
       if (!result.access_token) throw new Error("로그인 처리 실패");
@@ -227,7 +290,8 @@ function LoginPage({ onLogin }) {
       alignItems: "center", justifyContent: "center",
       padding: "24px 20px",
     }}>
-      <div style={{ textAlign: "center", marginBottom: 40 }}>
+      {/* 로고 */}
+      <div style={{ textAlign: "center", marginBottom: 36 }}>
         <div style={{
           width: 80, height: 80, borderRadius: 24, background: C.gold,
           display: "flex", alignItems: "center", justifyContent: "center",
@@ -239,111 +303,193 @@ function LoginPage({ onLogin }) {
         <div style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, marginTop: 4 }}>현장크루 마감보고 앱 {APP_VERSION}</div>
       </div>
 
+      {/* 카드 */}
       <div style={{
         width: "100%", maxWidth: 380, background: C.white,
         borderRadius: 24, padding: "28px 24px 32px",
         boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
       }}>
-        {step === "empId" && (
+
+        {/* ── 전화번호 모드 ── */}
+        {loginMode === "phone" && (
           <>
             <div style={{ marginBottom: 24 }}>
-              <div style={{ fontSize: 20, fontWeight: 800, color: C.dark, marginBottom: 6 }}>사번 입력</div>
-              <div style={{ fontSize: 13, color: C.gray }}>사번을 입력해주세요</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: C.dark, marginBottom: 6 }}>📱 전화번호로 로그인</div>
+              <div style={{ fontSize: 13, color: C.gray }}>등록된 전화번호를 입력하면 자동 로그인됩니다</div>
             </div>
+
             <div style={{ marginBottom: 16 }}>
-              <label style={{ fontSize: 12, fontWeight: 700, color: C.gray, display: "block", marginBottom: 6 }}>사번 (Employee ID)</label>
-              <input type="text" value={empId}
-                onChange={e => { setEmpId(e.target.value.toUpperCase()); setError(""); }}
-                onKeyDown={e => e.key === "Enter" && handleEmpIdNext()}
-                placeholder="예: MP24110, MPA1"
-                autoComplete="username" autoCapitalize="characters"
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.gray, display: "block", marginBottom: 6 }}>전화번호</label>
+              <input
+                type="tel" inputMode="numeric" value={phone}
+                onChange={handlePhoneChange}
+                onKeyDown={e => e.key === "Enter" && handlePhoneLogin(phone)}
+                placeholder="010-0000-0000"
+                autoComplete="tel"
                 style={{
-                  width: "100%", padding: "14px 16px",
-                  border: `2px solid ${error ? C.red : C.border}`,
-                  borderRadius: 12, fontSize: 16, fontWeight: 700,
+                  width: "100%", padding: "16px 16px",
+                  border: `2px solid ${phoneError ? C.red : phone.replace(/\D/g,"").length === 11 ? "#43A047" : C.border}`,
+                  borderRadius: 14, fontSize: 22, fontWeight: 800,
                   color: C.dark, background: C.lightGray,
-                  outline: "none", letterSpacing: 1, transition: "border-color 0.2s",
+                  outline: "none", letterSpacing: 2, textAlign: "center",
+                  transition: "border-color 0.2s", fontFamily: FONT,
+                  boxSizing: "border-box",
                 }}
               />
+              <div style={{ fontSize: 11, color: C.gray, marginTop: 6, textAlign: "center" }}>
+                11자리 완성 시 자동 로그인 · 비밀번호 불필요
+              </div>
             </div>
-            {error && (
-              <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 10, padding: "10px 14px", color: C.red, fontSize: 13, fontWeight: 600, marginBottom: 16 }}>
-                ⚠️ {error}
+
+            {phoneError && (
+              <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 10, padding: "10px 14px", color: C.red, fontSize: 13, fontWeight: 600, marginBottom: 16, textAlign: "center" }}>
+                ⚠️ {phoneError}
               </div>
             )}
-            <button onClick={handleEmpIdNext} disabled={loading || !empId.trim()}
-              style={{
-                width: "100%", padding: "15px",
-                background: loading || !empId.trim() ? C.border : C.navy,
-                color: C.white, border: "none", borderRadius: 14,
-                fontSize: 16, fontWeight: 800, fontFamily: FONT,
-              }}>
-              {loading ? "확인 중..." : "다음 →"}
-            </button>
+
+            {phoneLoading ? (
+              <div style={{ textAlign: "center", padding: "20px 0" }}>
+                <Spinner size={32} color={C.navy} />
+                <div style={{ color: C.gray, fontSize: 13, marginTop: 10 }}>로그인 중...</div>
+              </div>
+            ) : (
+              <button
+                onClick={() => handlePhoneLogin(phone)}
+                disabled={phone.replace(/\D/g,"").length !== 11}
+                style={{
+                  width: "100%", padding: "15px",
+                  background: phone.replace(/\D/g,"").length === 11 ? C.navy : C.border,
+                  color: C.white, border: "none", borderRadius: 14,
+                  fontSize: 16, fontWeight: 800, fontFamily: FONT,
+                  cursor: phone.replace(/\D/g,"").length === 11 ? "pointer" : "not-allowed",
+                  transition: "background 0.2s",
+                }}>
+                로그인
+              </button>
+            )}
+
+            {/* 사번 모드 전환 */}
+            <div style={{ textAlign: "center", marginTop: 20 }}>
+              <button onClick={() => { setLoginMode("empId"); setPhoneError(""); setPhone(""); }}
+                style={{ background: "none", border: "none", color: C.gray, fontSize: 12, fontWeight: 600, fontFamily: FONT, cursor: "pointer", textDecoration: "underline" }}>
+                사번으로 로그인 (관리자/크루)
+              </button>
+            </div>
           </>
         )}
 
-        {step === "pin" && (
+        {/* ── 사번+PIN 모드 ── */}
+        {loginMode === "empId" && (
           <>
-            <div style={{ marginBottom: 20 }}>
-              <button onClick={() => { setStep("empId"); setPin(""); setError(""); }}
-                style={{ background: "none", border: "none", color: C.gray, fontSize: 13, fontWeight: 600, marginBottom: 12, padding: 0, fontFamily: FONT }}>
-                ← 사번 변경
-              </button>
-              <div style={{ fontSize: 20, fontWeight: 800, color: C.dark, marginBottom: 4 }}>
-                안녕하세요, <span style={{ color: C.navy }}>{empName}</span>님!
-              </div>
-              <div style={{ fontSize: 13, color: C.gray }}>4자리 PIN을 입력해주세요</div>
-            </div>
-            <div style={{ display: "flex", gap: 14, justifyContent: "center", marginBottom: 24 }}>
-              {[0,1,2,3].map(i => (
-                <div key={i} style={{
-                  width: 18, height: 18, borderRadius: "50%",
-                  background: i < pin.length ? C.navy : "transparent",
-                  border: `2.5px solid ${i < pin.length ? C.navy : C.border}`,
-                  transition: "all 0.15s", transform: i < pin.length ? "scale(1.15)" : "scale(1)",
-                }} />
-              ))}
-            </div>
-            {error && (
-              <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 10, padding: "10px 14px", color: C.red, fontSize: 13, fontWeight: 600, marginBottom: 16, textAlign: "center" }}>
-                ⚠️ {error}
-              </div>
+            {step === "empId" && (
+              <>
+                <div style={{ marginBottom: 20 }}>
+                  <button onClick={() => { setLoginMode("phone"); setStep("empId"); setError(""); setPin(""); }}
+                    style={{ background: "none", border: "none", color: C.gray, fontSize: 13, fontWeight: 600, marginBottom: 12, padding: 0, fontFamily: FONT, cursor: "pointer" }}>
+                    ← 전화번호 로그인으로
+                  </button>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: C.dark, marginBottom: 6 }}>사번 입력</div>
+                  <div style={{ fontSize: 13, color: C.gray }}>관리자/크루 계정 전용</div>
+                </div>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: C.gray, display: "block", marginBottom: 6 }}>사번 (Employee ID)</label>
+                  <input type="text" value={empId}
+                    onChange={e => { setEmpId(e.target.value.toUpperCase()); setError(""); }}
+                    onKeyDown={e => e.key === "Enter" && handleEmpIdNext()}
+                    placeholder="예: MP24110, MPA1"
+                    autoComplete="username" autoCapitalize="characters"
+                    style={{
+                      width: "100%", padding: "14px 16px",
+                      border: `2px solid ${error ? C.red : C.border}`,
+                      borderRadius: 12, fontSize: 16, fontWeight: 700,
+                      color: C.dark, background: C.lightGray,
+                      outline: "none", letterSpacing: 1, boxSizing: "border-box",
+                    }}
+                  />
+                </div>
+                {error && (
+                  <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 10, padding: "10px 14px", color: C.red, fontSize: 13, fontWeight: 600, marginBottom: 16 }}>
+                    ⚠️ {error}
+                  </div>
+                )}
+                <button onClick={handleEmpIdNext} disabled={loading || !empId.trim()}
+                  style={{
+                    width: "100%", padding: "15px",
+                    background: loading || !empId.trim() ? C.border : C.navy,
+                    color: C.white, border: "none", borderRadius: 14,
+                    fontSize: 16, fontWeight: 800, fontFamily: FONT,
+                  }}>
+                  {loading ? "확인 중..." : "다음 →"}
+                </button>
+              </>
             )}
-            {loading ? (
-              <div style={{ textAlign: "center", padding: "32px 0" }}>
-                <Spinner size={36} color={C.navy} />
-                <div style={{ color: C.gray, fontSize: 13, marginTop: 12 }}>로그인 중...</div>
-              </div>
-            ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-                {pinKeys.flat().map((key, idx) => {
-                  if (!key) return <div key={idx} />;
-                  const isDel = key === "del";
-                  return (
-                    <button key={idx} onClick={() => handlePinKey(key)}
-                      style={{
-                        padding: "18px 0", background: isDel ? "#fef3f3" : C.lightGray,
-                        border: `1.5px solid ${isDel ? "#fca5a5" : C.border}`,
-                        borderRadius: 14, fontSize: isDel ? 18 : 24,
-                        fontWeight: isDel ? 600 : 700, color: isDel ? C.red : C.dark,
-                        transition: "all 0.1s", fontFamily: FONT,
-                      }}
-                      onTouchStart={e => e.currentTarget.style.background = isDel ? "#fee2e2" : C.border}
-                      onTouchEnd={e => e.currentTarget.style.background = isDel ? "#fef3f3" : C.lightGray}
-                      onMouseDown={e => e.currentTarget.style.background = isDel ? "#fee2e2" : C.border}
-                      onMouseUp={e => e.currentTarget.style.background = isDel ? "#fef3f3" : C.lightGray}
-                    >
-                      {isDel ? "⌫" : key}
-                    </button>
-                  );
-                })}
-              </div>
+
+            {step === "pin" && (
+              <>
+                <div style={{ marginBottom: 20 }}>
+                  <button onClick={() => { setStep("empId"); setPin(""); setError(""); }}
+                    style={{ background: "none", border: "none", color: C.gray, fontSize: 13, fontWeight: 600, marginBottom: 12, padding: 0, fontFamily: FONT, cursor: "pointer" }}>
+                    ← 사번 변경
+                  </button>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: C.dark, marginBottom: 4 }}>
+                    안녕하세요, <span style={{ color: C.navy }}>{empName}</span>님!
+                  </div>
+                  <div style={{ fontSize: 13, color: C.gray }}>4자리 PIN을 입력해주세요</div>
+                </div>
+                <div style={{ display: "flex", gap: 14, justifyContent: "center", marginBottom: 24 }}>
+                  {[0,1,2,3].map(i => (
+                    <div key={i} style={{
+                      width: 18, height: 18, borderRadius: "50%",
+                      background: i < pin.length ? C.navy : "transparent",
+                      border: `2.5px solid ${i < pin.length ? C.navy : C.border}`,
+                      transition: "all 0.15s", transform: i < pin.length ? "scale(1.15)" : "scale(1)",
+                    }} />
+                  ))}
+                </div>
+                {error && (
+                  <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 10, padding: "10px 14px", color: C.red, fontSize: 13, fontWeight: 600, marginBottom: 16, textAlign: "center" }}>
+                    ⚠️ {error}
+                  </div>
+                )}
+                {loading ? (
+                  <div style={{ textAlign: "center", padding: "32px 0" }}>
+                    <Spinner size={36} color={C.navy} />
+                    <div style={{ color: C.gray, fontSize: 13, marginTop: 12 }}>로그인 중...</div>
+                  </div>
+                ) : (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                    {pinKeys.flat().map((key, idx) => {
+                      if (!key) return <div key={idx} />;
+                      const isDel = key === "del";
+                      return (
+                        <button key={idx} onClick={() => handlePinKey(key)}
+                          style={{
+                            padding: "18px 0", background: isDel ? "#fef3f3" : C.lightGray,
+                            border: `1.5px solid ${isDel ? "#fca5a5" : C.border}`,
+                            borderRadius: 14, fontSize: isDel ? 18 : 24,
+                            fontWeight: isDel ? 600 : 700, color: isDel ? C.red : C.dark,
+                            transition: "all 0.1s", fontFamily: FONT,
+                          }}
+                          onTouchStart={e => e.currentTarget.style.background = isDel ? "#fee2e2" : C.border}
+                          onTouchEnd={e => e.currentTarget.style.background = isDel ? "#fef3f3" : C.lightGray}
+                          onMouseDown={e => e.currentTarget.style.background = isDel ? "#fee2e2" : C.border}
+                          onMouseUp={e => e.currentTarget.style.background = isDel ? "#fef3f3" : C.lightGray}
+                        >
+                          {isDel ? "⌫" : key}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
             )}
           </>
         )}
       </div>
-      <div style={{ color: "rgba(255,255,255,0.35)", fontSize: 12, marginTop: 24, textAlign: "center" }}>PIN을 모를 경우 관리자에게 문의하세요</div>
+
+      <div style={{ color: "rgba(255,255,255,0.35)", fontSize: 12, marginTop: 24, textAlign: "center" }}>
+        {loginMode === "phone" ? "전화번호가 등록되지 않은 경우 관리자에게 문의하세요" : "PIN을 모를 경우 관리자에게 문의하세요"}
+      </div>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );

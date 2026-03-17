@@ -241,6 +241,97 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ success: true, results, successCount, totalCount: accounts.length }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // ── phone_login: 전화번호 → emp_no 조회 → signInWithPassword ──
+    if (action === "phone_login") {
+      const { phone } = body;
+      if (!phone) {
+        return new Response(JSON.stringify({ error: "전화번호가 필요합니다." }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const adminClient = createClient(
+        Deno.env.get("SUPABASE_URL") ?? "",
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+        { auth: { autoRefreshToken: false, persistSession: false } }
+      );
+
+      // 숫자만 추출 (하이픈 제거)
+      const digits = phone.replace(/\D/g, "");
+
+      // employees 테이블에서 전화번호로 직원 조회
+      const { data: emp, error: empErr } = await adminClient
+        .from("employees")
+        .select("id, name, emp_no, site_code_1, work_code, phone, status, auth_id")
+        .or(`phone.eq.${digits},phone.eq.${digits.replace(/(\d{3})(\d{3,4})(\d{4})/, "$1-$2-$3")}`)
+        .eq("status", "재직")
+        .single();
+
+      if (empErr || !emp) {
+        return new Response(JSON.stringify({ error: "등록되지 않은 전화번호입니다." }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // PIN = mp + 전화번호 뒤 4자리
+      const empDigits = (emp.phone || "").replace(/\D/g, "");
+      const pin4 = empDigits.slice(-4);
+      if (!pin4 || pin4.length < 4) {
+        return new Response(JSON.stringify({ error: "전화번호 정보가 올바르지 않습니다. 관리자에게 문의하세요." }), {
+          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const password = `mp${pin4}`;
+      const email = `${emp.emp_no.toLowerCase()}@mepark.internal`;
+
+      // Supabase Auth 직접 로그인
+      const { data: authData, error: authErr } = await adminClient.auth.signInWithPassword({ email, password });
+
+      if (authErr || !authData?.session) {
+        // auth 계정이 없으면 → field.mepark.internal 이메일로 시도 (field_member)
+        const fieldEmail = `${emp.emp_no.toLowerCase()}@field.mepark.internal`;
+        const fieldPass = `MP_FIELD_${pin4}_${emp.id.slice(0, 8)}`;
+        const { data: fieldAuth, error: fieldErr } = await adminClient.auth.signInWithPassword({
+          email: fieldEmail, password: fieldPass,
+        });
+        if (fieldErr || !fieldAuth?.session) {
+          // auth 계정 없으면 자동 생성
+          const { data: newUser, error: createErr } = await adminClient.auth.admin.createUser({
+            email: fieldEmail, password: fieldPass, email_confirm: true,
+            user_metadata: { emp_id: emp.emp_no, name: emp.name, role: "field_member", site_code: emp.site_code_1 },
+          });
+          if (createErr) {
+            return new Response(JSON.stringify({ error: "계정 생성 실패: " + createErr.message }), {
+              status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+          // 재로그인
+          const { data: retryAuth } = await adminClient.auth.signInWithPassword({ email: fieldEmail, password: fieldPass });
+          if (!retryAuth?.session) {
+            return new Response(JSON.stringify({ error: "로그인 처리 실패. 관리자에게 문의하세요." }), {
+              status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+          return new Response(JSON.stringify({
+            access_token: retryAuth.session.access_token,
+            refresh_token: retryAuth.session.refresh_token,
+            employee: { emp_no: emp.emp_no, name: emp.name, site_code: emp.site_code_1, role: "field_member" },
+          }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        return new Response(JSON.stringify({
+          access_token: fieldAuth.session.access_token,
+          refresh_token: fieldAuth.session.refresh_token,
+          employee: { emp_no: emp.emp_no, name: emp.name, site_code: emp.site_code_1, role: "field_member" },
+        }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      return new Response(JSON.stringify({
+        access_token: authData.session.access_token,
+        refresh_token: authData.session.refresh_token,
+        employee: { emp_no: emp.emp_no, name: emp.name, site_code: emp.site_code_1, role: "crew" },
+      }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     return new Response(JSON.stringify({ error: `알 수 없는 action: ${action}` }), {
       status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
