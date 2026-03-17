@@ -970,17 +970,16 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
           name_raw: s.duty === "part" ? s.name : null,
           staff_type: s.duty || "site",
           work_hours: 0,
-          extra_type_id: ex?.typeId || null,
-          extra_type_name: ex?.typeName || null,
-          extra_start: ex?.start || null,
-          extra_end: ex?.end || null,
-          extra_minutes: ex?.minutes || null,
-          extra_amount: ex?.amount || null,
+          extra_type: ex?.typeName || null,
+          extra_amount: ex?.amount ? Math.round(ex.amount) : null,
         };
       });
       if (staffRows.length > 0) {
         const { error: se } = await supabase.from("daily_report_staff").insert(staffRows);
-        if (se) console.error("staff 저장 실패:", se);
+        if (se) {
+          console.error("staff 저장 실패:", se);
+          throw new Error("근무직원 저장 실패: " + se.message);
+        }
       }
       onSave();
       // 성공 시 임시저장 삭제
