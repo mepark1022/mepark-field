@@ -21,6 +21,7 @@ const C = {
 // ─── 상수 ────────────────────────────────────────────────────────────────
 const APP_VERSION = "v1.0";
 const STORAGE_EMP_ID_KEY = "mepark_field_emp_id";
+const STORAGE_PHONE_KEY  = "mepark_field_saved_phone";
 const FONT = "'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif";
 
 const DUTY_TYPES = [
@@ -152,12 +153,27 @@ function LoginPage({ onLogin }) {
   const [loginMode, setLoginMode] = useState("phone");
 
   // ── 전화번호 모드 state ──
-  const [phone, setPhone] = useState("");
+  const [seg1, setSeg1] = useState("");  // 4자리
+  const [seg2, setSeg2] = useState("");  // 4자리
   const [phoneLoading, setPhoneLoading] = useState(false);
   const [phoneError, setPhoneError] = useState("");
+  const [rememberPhone, setRememberPhone] = useState(() => !!localStorage.getItem(STORAGE_PHONE_KEY));
   // 실패 횟수 잠금
   const [failCount, setFailCount] = useState(0);
   const [lockUntil, setLockUntil] = useState(null);
+
+  // 저장된 전화번호 복원
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_PHONE_KEY);
+      if (saved) {
+        const d = JSON.parse(saved);
+        if (d.s1 && d.s2 && d.s1.length === 4 && d.s2.length === 4) {
+          setSeg1(d.s1); setSeg2(d.s2);
+        }
+      }
+    } catch (_) {}
+  }, []);
 
   // ── 사번+PIN 모드 state ──
   const [step, setStep] = useState("empId");
@@ -167,21 +183,28 @@ function LoginPage({ onLogin }) {
   const [error, setError]   = useState("");
   const [empName, setEmpName] = useState("");
 
-  // 전화번호 자동 포맷 (숫자만 → 010-XXXX-XXXX)
-  function formatPhone(raw) {
-    const d = raw.replace(/\D/g, "").slice(0, 11);
-    if (d.length <= 3) return d;
-    if (d.length <= 7) return `${d.slice(0,3)}-${d.slice(3)}`;
-    return `${d.slice(0,3)}-${d.slice(3,7)}-${d.slice(7)}`;
+  function getPhoneDigits() { return "010" + seg1 + seg2; }
+  function isPhoneComplete() { return seg1.length === 4 && seg2.length === 4; }
+
+  function handleSeg1Change(e) {
+    const v = e.target.value.replace(/\D/g, "").slice(0, 4);
+    setSeg1(v); setPhoneError("");
+    if (v.length === 4) { document.getElementById("mpLoginSeg2")?.focus(); }
+    if (v.length === 4 && seg2.length === 4) { setTimeout(() => handlePhoneLogin("010" + v + seg2), 300); }
+  }
+  function handleSeg2Change(e) {
+    const v = e.target.value.replace(/\D/g, "").slice(0, 4);
+    setSeg2(v); setPhoneError("");
+    if (v.length === 4 && seg1.length === 4) { setTimeout(() => handlePhoneLogin("010" + seg1 + v), 300); }
   }
 
-  function handlePhoneChange(e) {
-    const formatted = formatPhone(e.target.value);
-    setPhone(formatted);
-    setPhoneError("");
-    // 11자리(010-XXXX-XXXX) 완성 시 자동 로그인
-    if (formatted.replace(/\D/g, "").length === 11) {
-      setTimeout(() => handlePhoneLogin(formatted), 200);
+  function toggleRememberPhone() {
+    const next = !rememberPhone;
+    setRememberPhone(next);
+    if (next) {
+      try { localStorage.setItem(STORAGE_PHONE_KEY, JSON.stringify({ s1: seg1, s2: seg2 })); } catch (_) {}
+    } else {
+      try { localStorage.removeItem(STORAGE_PHONE_KEY); } catch (_) {}
     }
   }
 
@@ -192,7 +215,7 @@ function LoginPage({ onLogin }) {
       setPhoneError(`로그인 시도가 너무 많습니다. ${sec}초 후 다시 시도하세요.`);
       return;
     }
-    const digits = (phoneVal || phone).replace(/\D/g, "");
+    const digits = (phoneVal || getPhoneDigits()).replace(/\D/g, "");
     if (digits.length !== 11) { setPhoneError("전화번호 11자리를 입력해주세요."); return; }
 
     setPhoneLoading(true);
@@ -219,6 +242,7 @@ function LoginPage({ onLogin }) {
       const { data: auth1, error: err1 } = await supabase.auth.signInWithPassword({ email: email1, password: pass1 });
       if (!err1 && auth1?.session) {
         setFailCount(0);
+        if (rememberPhone) { try { localStorage.setItem(STORAGE_PHONE_KEY, JSON.stringify({ s1: seg1, s2: seg2 })); } catch (_) {} }
         onLogin({ session: auth1.session, employee: { ...empInfo, role: "crew" } });
         return;
       }
@@ -230,6 +254,7 @@ function LoginPage({ onLogin }) {
       const { data: auth2, error: err2 } = await supabase.auth.signInWithPassword({ email: email2, password: pass2 });
       if (!err2 && auth2?.session) {
         setFailCount(0);
+        if (rememberPhone) { try { localStorage.setItem(STORAGE_PHONE_KEY, JSON.stringify({ s1: seg1, s2: seg2 })); } catch (_) {} }
         onLogin({ session: auth2.session, employee: { ...empInfo, role: "field_member" } });
         return;
       }
@@ -239,6 +264,7 @@ function LoginPage({ onLogin }) {
       if (!result.error && result.access_token) {
         const { data: sessionData } = await supabase.auth.setSession({ access_token: result.access_token, refresh_token: result.refresh_token });
         setFailCount(0);
+        if (rememberPhone) { try { localStorage.setItem(STORAGE_PHONE_KEY, JSON.stringify({ s1: seg1, s2: seg2 })); } catch (_) {} }
         onLogin({ session: sessionData.session, employee: { ...empInfo, ...result.employee } });
         return;
       }
@@ -349,27 +375,101 @@ function LoginPage({ onLogin }) {
               <div style={{ fontSize: 13, color: C.gray }}>등록된 전화번호를 입력하면 자동 로그인됩니다</div>
             </div>
 
-            <div style={{ marginBottom: 16 }}>
+            <div style={{ marginBottom: 4 }}>
               <label style={{ fontSize: 12, fontWeight: 700, color: C.gray, display: "block", marginBottom: 6 }}>전화번호</label>
-              <input
-                type="tel" inputMode="numeric" value={phone}
-                onChange={handlePhoneChange}
-                onKeyDown={e => e.key === "Enter" && handlePhoneLogin(phone)}
-                placeholder="010-0000-0000"
-                autoComplete="tel"
-                style={{
-                  width: "100%", padding: "16px 16px",
-                  border: `2px solid ${phoneError ? C.red : phone.replace(/\D/g,"").length === 11 ? "#43A047" : C.border}`,
-                  borderRadius: 14, fontSize: 22, fontWeight: 800,
-                  color: C.dark, background: C.lightGray,
-                  outline: "none", letterSpacing: 2, textAlign: "center",
-                  transition: "border-color 0.2s", fontFamily: FONT,
-                  boxSizing: "border-box",
-                }}
-              />
+              {/* 010 고정 + 분리 입력 */}
+              <div style={{
+                display: "flex", alignItems: "center",
+                border: `2px solid ${phoneError ? C.red : (seg1.length === 4 && seg2.length === 4) ? "#43A047" : C.border}`,
+                borderRadius: 14, overflow: "hidden",
+                background: "#fff", transition: "border-color 0.2s",
+              }}>
+                {/* 010 고정 */}
+                <div style={{
+                  background: "#F0F2FA", color: C.navy,
+                  fontSize: 20, fontWeight: 800,
+                  padding: "0 12px", height: 56,
+                  display: "flex", alignItems: "center",
+                  borderRight: `2px solid ${C.border}`,
+                  letterSpacing: 1, flexShrink: 0, fontFamily: FONT,
+                }}>010</div>
+                {/* 구분선 */}
+                <span style={{ color: C.border, fontSize: 20, padding: "0 4px", flexShrink: 0 }}>-</span>
+                {/* 앞 4자리 */}
+                <input
+                  id="mpLoginSeg1"
+                  type="tel" inputMode="numeric"
+                  value={seg1}
+                  onChange={handleSeg1Change}
+                  onKeyDown={e => e.key === "Enter" && document.getElementById("mpLoginSeg2")?.focus()}
+                  placeholder="0000"
+                  maxLength={4}
+                  autoComplete="off"
+                  style={{
+                    flex: 1, border: "none", outline: "none",
+                    fontSize: 22, fontWeight: 800, textAlign: "center",
+                    color: C.dark, background: "transparent",
+                    letterSpacing: 3, fontFamily: FONT, height: 56,
+                    minWidth: 0,
+                  }}
+                />
+                <span style={{ color: C.border, fontSize: 20, padding: "0 4px", flexShrink: 0 }}>-</span>
+                {/* 뒤 4자리 */}
+                <input
+                  id="mpLoginSeg2"
+                  type="tel" inputMode="numeric"
+                  value={seg2}
+                  onChange={handleSeg2Change}
+                  onKeyDown={e => {
+                    if (e.key === "Backspace" && seg2 === "") document.getElementById("mpLoginSeg1")?.focus();
+                    if (e.key === "Enter" && isPhoneComplete()) handlePhoneLogin();
+                  }}
+                  placeholder="0000"
+                  maxLength={4}
+                  autoComplete="off"
+                  style={{
+                    flex: 1, border: "none", outline: "none",
+                    fontSize: 22, fontWeight: 800, textAlign: "center",
+                    color: C.dark, background: "transparent",
+                    letterSpacing: 3, fontFamily: FONT, height: 56,
+                    minWidth: 0,
+                  }}
+                />
+              </div>
               <div style={{ fontSize: 11, color: C.gray, marginTop: 6, textAlign: "center" }}>
                 11자리 완성 시 자동 로그인 · 비밀번호 불필요
               </div>
+            </div>
+
+            {/* 아이디 기억하기 */}
+            <div
+              onClick={toggleRememberPhone}
+              style={{ display: "flex", alignItems: "center", gap: 8, margin: "14px 0 18px", cursor: "pointer", userSelect: "none" }}
+            >
+              <div style={{
+                width: 18, height: 18,
+                borderRadius: 5,
+                border: `1.5px solid ${rememberPhone ? C.navy : C.border}`,
+                background: rememberPhone ? C.navy : "#fff",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                flexShrink: 0, transition: "all 0.15s",
+              }}>
+                {rememberPhone && (
+                  <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                    <path d="M1 4L3.5 6.5L9 1" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                )}
+              </div>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#555" }}>
+                아이디 기억하기
+                {rememberPhone && (
+                  <span style={{
+                    marginLeft: 6, background: "#EEF1FB", color: C.navy,
+                    fontSize: 11, fontWeight: 700,
+                    padding: "2px 8px", borderRadius: 6, display: "inline-block",
+                  }}>저장됨</span>
+                )}
+              </span>
             </div>
 
             {phoneError && (
@@ -385,14 +485,14 @@ function LoginPage({ onLogin }) {
               </div>
             ) : (
               <button
-                onClick={() => handlePhoneLogin(phone)}
-                disabled={phone.replace(/\D/g,"").length !== 11}
+                onClick={() => handlePhoneLogin()}
+                disabled={!isPhoneComplete()}
                 style={{
                   width: "100%", padding: "15px",
-                  background: phone.replace(/\D/g,"").length === 11 ? C.navy : C.border,
+                  background: isPhoneComplete() ? C.navy : C.border,
                   color: C.white, border: "none", borderRadius: 14,
                   fontSize: 16, fontWeight: 800, fontFamily: FONT,
-                  cursor: phone.replace(/\D/g,"").length === 11 ? "pointer" : "not-allowed",
+                  cursor: isPhoneComplete() ? "pointer" : "not-allowed",
                   transition: "background 0.2s",
                 }}>
                 로그인
@@ -401,7 +501,7 @@ function LoginPage({ onLogin }) {
 
             {/* 사번 모드 전환 */}
             <div style={{ textAlign: "center", marginTop: 20 }}>
-              <button onClick={() => { setLoginMode("empId"); setPhoneError(""); setPhone(""); }}
+              <button onClick={() => { setLoginMode("empId"); setPhoneError(""); setSeg1(""); setSeg2(""); }}
                 style={{ background: "none", border: "none", color: C.gray, fontSize: 12, fontWeight: 600, fontFamily: FONT, cursor: "pointer", textDecoration: "underline" }}>
                 사번으로 로그인 (관리자/크루)
               </button>
