@@ -231,36 +231,53 @@ function LoginPage({ onLogin }) {
         throw new Error("등록되지 않은 전화번호입니다.");
       }
       const emp = empRows[0];
-      // pin4가 null이면 입력한 전화번호 뒤 4자리로 대체 (비밀번호 규칙: mp + 뒤4자리)
+      // pin4 = RPC 반환값 || 입력 전화번호 뒤 4자리 (비밀번호 규칙: mp + 뒤4자리)
       const pin4 = emp.pin4 || digits.slice(-4);
       const empNo = emp.emp_no;
       const empUUID = emp.emp_uuid || emp.emp_id || "";
+      const accountEmail = emp.account_email || "";
+      const systemRole = emp.system_role || "field_member";
       const empInfo = { emp_no: empNo, emp_id: empNo, name: emp.emp_name, site_code: emp.site_code, work_type: emp.work_code };
+      const pass = `mp${pin4}`;
 
-      // ① @mepark.internal 계정 시도 (crew/admin)
-      const email1 = `${empNo.toLowerCase()}@mepark.internal`;
-      const pass1 = `mp${pin4}`;
-      const { data: auth1, error: err1 } = await supabase.auth.signInWithPassword({ email: email1, password: pass1 });
+      // ① empno@mepark.internal 시도 (crew)
+      const { data: auth1, error: err1 } = await supabase.auth.signInWithPassword({
+        email: `${empNo.toLowerCase()}@mepark.internal`, password: pass,
+      });
       if (!err1 && auth1?.session) {
         setFailCount(0);
         if (rememberPhone) { try { localStorage.setItem(STORAGE_PHONE_KEY, JSON.stringify({ s1: seg1, s2: seg2 })); } catch (_) {} }
-        onLogin({ session: auth1.session, employee: { ...empInfo, role: "crew" } });
+        onLogin({ session: auth1.session, employee: { ...empInfo, role: systemRole !== "field_member" ? systemRole : "crew" } });
         return;
       }
 
-      // ② @field.mepark.internal 계정 시도 (field_member)
-      const email2 = `${empNo.toLowerCase()}@field.mepark.internal`;
+      // ② account_email 시도 (admin/super_admin — 실계정 이메일)
+      if (accountEmail) {
+        const { data: auth2, error: err2 } = await supabase.auth.signInWithPassword({
+          email: accountEmail, password: pass,
+        });
+        if (!err2 && auth2?.session) {
+          setFailCount(0);
+          if (rememberPhone) { try { localStorage.setItem(STORAGE_PHONE_KEY, JSON.stringify({ s1: seg1, s2: seg2 })); } catch (_) {} }
+          onLogin({ session: auth2.session, employee: { ...empInfo, role: systemRole } });
+          return;
+        }
+      }
+
+      // ③ empno@field.mepark.internal 시도 (field_member)
       const uuidPrefix = empUUID ? empUUID.slice(0, 8) : empNo.slice(-8);
-      const pass2 = `MP_FIELD_${pin4}_${uuidPrefix}`;
-      const { data: auth2, error: err2 } = await supabase.auth.signInWithPassword({ email: email2, password: pass2 });
-      if (!err2 && auth2?.session) {
+      const { data: auth3, error: err3 } = await supabase.auth.signInWithPassword({
+        email: `${empNo.toLowerCase()}@field.mepark.internal`,
+        password: `MP_FIELD_${pin4}_${uuidPrefix}`,
+      });
+      if (!err3 && auth3?.session) {
         setFailCount(0);
         if (rememberPhone) { try { localStorage.setItem(STORAGE_PHONE_KEY, JSON.stringify({ s1: seg1, s2: seg2 })); } catch (_) {} }
-        onLogin({ session: auth2.session, employee: { ...empInfo, role: "field_member" } });
+        onLogin({ session: auth3.session, employee: { ...empInfo, role: "field_member" } });
         return;
       }
 
-      // 둘 다 실패 → field_login Edge Function으로 PIN 재설정 시도
+      // ④ field_login Edge Function 시도
       const result = await callAdminApi({ action: "field_login", emp_id: empNo, pin: pin4 });
       if (!result.error && result.access_token) {
         const { data: sessionData } = await supabase.auth.setSession({ access_token: result.access_token, refresh_token: result.refresh_token });
@@ -268,6 +285,11 @@ function LoginPage({ onLogin }) {
         if (rememberPhone) { try { localStorage.setItem(STORAGE_PHONE_KEY, JSON.stringify({ s1: seg1, s2: seg2 })); } catch (_) {} }
         onLogin({ session: sessionData.session, employee: { ...empInfo, ...result.employee } });
         return;
+      }
+
+      // 관리자 계정인 경우 사번 로그인 안내
+      if (systemRole === "admin" || systemRole === "super_admin") {
+        throw new Error("관리자 계정입니다. 하단의 '사번으로 로그인'을 이용해주세요.");
       }
 
       const newFail = failCount + 1;
