@@ -1717,6 +1717,38 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
               )}
             </div>
 
+            {/* 추가수당 요약 */}
+            {Object.keys(extraWork).filter(k => extraWork[k]?.typeId).length > 0 && (() => {
+              const extraEntries = Object.entries(extraWork).filter(([, ex]) => ex?.typeId);
+              const totalExtra = extraEntries.reduce((s, [, ex]) => s + (ex.amount || 0), 0);
+              return (
+                <div style={{ background: "#F5F3FF", borderRadius: 14, padding: "14px 16px", marginBottom: 12, border: "1.5px solid #DDD6FE" }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: "#6D28D9", marginBottom: 10 }}>💰 추가수당 ({extraEntries.length}건)</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {extraEntries.map(([empNo, ex]) => {
+                      const staff = form.selectedStaff.find(s => s.emp_no === empNo);
+                      return (
+                        <div key={empNo} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ fontWeight: 700, color: C.dark }}>{staff?.name || empNo}</span>
+                            <span style={{ color: "#8B5CF6", fontSize: 11 }}>
+                              {ex.typeName}{ex.payKind === "hourly" && ex.start && ex.end ? ` (${ex.start}~${ex.end})` : ""}
+                            </span>
+                          </div>
+                          <span style={{ fontWeight: 800, color: "#6D28D9", fontFamily: "monospace" }}>+{(ex.amount || 0).toLocaleString("ko-KR")}원</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ borderTop: "1px solid #DDD6FE", marginTop: 8, paddingTop: 8,
+                    display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#6D28D9" }}>합계</span>
+                    <span style={{ fontSize: 15, fontWeight: 900, color: "#6D28D9", fontFamily: "monospace" }}>+{totalExtra.toLocaleString("ko-KR")}원</span>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* 발렛비 요약 */}
             <div style={{ background: "#f5f6fa", borderRadius: 14, padding: "14px 16px", marginBottom: 12 }}>
               <div style={{ fontSize: 12, fontWeight: 800, color: C.navy, marginBottom: 10 }}>💰 발렛비 ({autoValetCount}건)</div>
