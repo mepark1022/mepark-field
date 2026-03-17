@@ -1187,8 +1187,8 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
             )
           )}
 
-          {/* ── 추가근무 입력 섹션 (extraEnabled + site 직원 선택됨) ── */}
-          {extraEnabled && extraTypes.length > 0 && form.selectedStaff.filter(s => s.duty === "site").length > 0 && (() => {
+          {/* ── 추가근무 입력 섹션 (site 탭 + extraEnabled + site 직원 선택됨) ── */}
+          {dutyTab === "site" && extraEnabled && extraTypes.length > 0 && form.selectedStaff.filter(s => s.duty === "site").length > 0 && (() => {
             const siteStaff = form.selectedStaff.filter(s => s.duty === "site");
             const HALF_HOURS = [];
             for (let h = 0; h < 24; h++) for (let m of [0, 30]) HALF_HOURS.push(`${String(h).padStart(2,"0")}:${m===0?"00":"30"}`);
