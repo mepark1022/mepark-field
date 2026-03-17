@@ -2060,6 +2060,137 @@ function PayslipPage({ employee, onBack }) {
 }
 
 // ─── 앱 루트 ──────────────────────────────────────────────────────────────
+// ── 오류 보고 FAB (현장앱) ────────────────────────────
+const FIELD_BUG_CATEGORIES = [
+  { key: "ui",          label: "🖥️ UI/화면 오류" },
+  { key: "data",        label: "📊 데이터 오류" },
+  { key: "login",       label: "🔐 로그인/권한" },
+  { key: "performance", label: "⚡ 속도/성능" },
+  { key: "suggestion",  label: "💡 기능 건의" },
+  { key: "other",       label: "🔧 기타" },
+];
+const FIELD_BUG_PRIORITY = {
+  low:      { label: "낮음",  color: "#666" },
+  medium:   { label: "보통",  color: "#EA580C" },
+  high:     { label: "높음",  color: "#DC2626" },
+  critical: { label: "긴급",  color: "#7C3AED" },
+};
+
+function FieldBugReportFAB({ currentPage, employee }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ title: "", category: "ui", description: "", priority: "medium" });
+  const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!form.title.trim() || !form.description.trim()) { alert("제목과 내용을 입력해주세요."); return; }
+    setLoading(true);
+    try {
+      const { error } = await supabase.from("bug_reports").insert({
+        app: "field",
+        reporter_name: employee?.name || "알 수 없음",
+        reporter_emp_no: employee?.emp_no || employee?.emp_id || "",
+        reporter_role: employee?.role || "field_member",
+        page: currentPage || "",
+        category: form.category,
+        title: form.title.trim(),
+        description: form.description.trim(),
+        priority: form.priority,
+        status: "open",
+      });
+      if (error) throw error;
+      setDone(true);
+      setTimeout(() => {
+        setOpen(false); setDone(false);
+        setForm({ title: "", category: "ui", description: "", priority: "medium" });
+      }, 1800);
+    } catch (e) { alert("제출 실패: " + e.message); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <>
+      {/* FAB — 하단탭 위 오른쪽 */}
+      <button onClick={() => setOpen(true)} title="오류 보고" style={{
+        position: "fixed", bottom: 76, right: 16, zIndex: 200,
+        width: 44, height: 44, borderRadius: "50%",
+        background: C.navy, border: `2.5px solid ${C.gold}`,
+        color: "#fff", fontSize: 18, cursor: "pointer",
+        boxShadow: "0 3px 12px rgba(20,40,160,0.35)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>🐛</button>
+
+      {open && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+          <div style={{ background: "#fff", borderRadius: "20px 20px 0 0", width: "100%", maxWidth: 480, overflow: "hidden", boxShadow: "0 -4px 24px rgba(0,0,0,0.18)", maxHeight: "90vh", overflowY: "auto" }}>
+            {/* 핸들 */}
+            <div style={{ width: 40, height: 4, borderRadius: 2, background: "#DDD", margin: "12px auto 0" }} />
+            <div style={{ background: C.navy, padding: "12px 18px", marginTop: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ color: "#fff", fontWeight: 800, fontSize: 14, fontFamily: FONT }}>🐛 오류 / 건의사항 보고</span>
+              <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", color: "rgba(255,255,255,0.7)", fontSize: 20, cursor: "pointer", padding: 0 }}>×</button>
+            </div>
+            <div style={{ padding: 18 }}>
+              {done ? (
+                <div style={{ textAlign: "center", padding: "32px 0" }}>
+                  <div style={{ fontSize: 40, marginBottom: 10 }}>✅</div>
+                  <div style={{ fontWeight: 800, fontSize: 16, color: C.navy, fontFamily: FONT }}>접수 완료!</div>
+                  <div style={{ color: "#666", fontSize: 13, marginTop: 6 }}>빠르게 확인하겠습니다.</div>
+                </div>
+              ) : (
+                <>
+                  <div style={{ background: "#f8f9ff", borderRadius: 8, padding: "8px 12px", marginBottom: 14, fontSize: 12, color: "#666", fontFamily: FONT }}>
+                    📍 화면: <strong style={{ color: C.navy }}>{currentPage || "홈"}</strong> · <strong style={{ color: C.navy }}>{employee?.name || ""}</strong>
+                  </div>
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#666", marginBottom: 6, fontFamily: FONT }}>분류</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {FIELD_BUG_CATEGORIES.map(c => (
+                        <button key={c.key} onClick={() => setForm(f => ({ ...f, category: c.key }))} style={{
+                          padding: "5px 11px", borderRadius: 20, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: FONT,
+                          border: `2px solid ${form.category === c.key ? C.navy : "#DDD"}`,
+                          background: form.category === c.key ? C.navy : "#fff",
+                          color: form.category === c.key ? "#fff" : "#666",
+                        }}>{c.label}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#666", marginBottom: 6, fontFamily: FONT }}>심각도</div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {Object.entries(FIELD_BUG_PRIORITY).map(([k, v]) => (
+                        <button key={k} onClick={() => setForm(f => ({ ...f, priority: k }))} style={{
+                          flex: 1, padding: "7px 0", borderRadius: 8, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: FONT,
+                          border: `2px solid ${form.priority === k ? v.color : "#DDD"}`,
+                          background: form.priority === k ? v.color : "#fff",
+                          color: form.priority === k ? "#fff" : "#666",
+                        }}>{v.label}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#666", marginBottom: 6, fontFamily: FONT }}>제목 *</div>
+                    <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="오류 제목을 간단히 입력하세요" style={{ width: "100%", padding: "10px 12px", border: "1.5px solid #DDD", borderRadius: 10, fontSize: 14, fontFamily: FONT, boxSizing: "border-box" }} />
+                  </div>
+                  <div style={{ marginBottom: 18 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#666", marginBottom: 6, fontFamily: FONT }}>상세 내용 *</div>
+                    <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="어떤 상황에서 발생했는지 자세히 적어주세요" rows={4} style={{ width: "100%", padding: "10px 12px", border: "1.5px solid #DDD", borderRadius: 10, fontSize: 14, fontFamily: FONT, resize: "none", boxSizing: "border-box" }} />
+                  </div>
+                  <div style={{ display: "flex", gap: 8, paddingBottom: "env(safe-area-inset-bottom, 8px)" }}>
+                    <button onClick={() => setOpen(false)} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1.5px solid #DDD", background: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FONT, color: "#666" }}>취소</button>
+                    <button onClick={handleSubmit} disabled={loading} style={{ flex: 2, padding: "12px 0", borderRadius: 10, border: "none", background: loading ? "#999" : C.navy, color: "#fff", fontSize: 14, fontWeight: 800, cursor: loading ? "not-allowed" : "pointer", fontFamily: FONT }}>
+                      {loading ? "제출 중..." : "🐛 접수하기"}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function App() {
   const [authState, setAuthState] = useState("loading");
   const [employee, setEmployee] = useState(null);
@@ -2259,6 +2390,9 @@ export default function App() {
         input:focus, textarea:focus { outline: none; }
         button { cursor: pointer; }
       `}</style>
+
+      {/* 오류보고 FAB — 로그인 후 항상 표시 */}
+      <FieldBugReportFAB currentPage={page} employee={employee} />
     </div>
   );
 }
