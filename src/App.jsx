@@ -231,7 +231,8 @@ function LoginPage({ onLogin }) {
         throw new Error("등록되지 않은 전화번호입니다.");
       }
       const emp = empRows[0];
-      const pin4 = emp.pin4;
+      // pin4가 null이면 입력한 전화번호 뒤 4자리로 대체 (비밀번호 규칙: mp + 뒤4자리)
+      const pin4 = emp.pin4 || digits.slice(-4);
       const empNo = emp.emp_no;
       const empUUID = emp.emp_uuid || emp.emp_id || "";
       const empInfo = { emp_no: empNo, emp_id: empNo, name: emp.emp_name, site_code: emp.site_code, work_type: emp.work_code };
