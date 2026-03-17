@@ -211,6 +211,7 @@ function LoginPage({ onLogin }) {
       const pin4 = emp.pin4;
       const empNo = emp.emp_no;
       const empUUID = emp.emp_uuid || emp.emp_id || "";
+      const empInfo = { emp_no: empNo, emp_id: empNo, name: emp.emp_name, site_code: emp.site_code, work_type: emp.work_code };
 
       // ① @mepark.internal 계정 시도 (crew/admin)
       const email1 = `${empNo.toLowerCase()}@mepark.internal`;
@@ -218,7 +219,7 @@ function LoginPage({ onLogin }) {
       const { data: auth1, error: err1 } = await supabase.auth.signInWithPassword({ email: email1, password: pass1 });
       if (!err1 && auth1?.session) {
         setFailCount(0);
-        onLogin({ session: auth1.session, employee: { emp_no: empNo, name: emp.emp_name, site_code: emp.site_code, role: "crew" } });
+        onLogin({ session: auth1.session, employee: { ...empInfo, role: "crew" } });
         return;
       }
 
@@ -229,7 +230,7 @@ function LoginPage({ onLogin }) {
       const { data: auth2, error: err2 } = await supabase.auth.signInWithPassword({ email: email2, password: pass2 });
       if (!err2 && auth2?.session) {
         setFailCount(0);
-        onLogin({ session: auth2.session, employee: { emp_no: empNo, name: emp.emp_name, site_code: emp.site_code, role: "field_member" } });
+        onLogin({ session: auth2.session, employee: { ...empInfo, role: "field_member" } });
         return;
       }
 
@@ -238,7 +239,7 @@ function LoginPage({ onLogin }) {
       if (!result.error && result.access_token) {
         const { data: sessionData } = await supabase.auth.setSession({ access_token: result.access_token, refresh_token: result.refresh_token });
         setFailCount(0);
-        onLogin({ session: sessionData.session, employee: result.employee });
+        onLogin({ session: sessionData.session, employee: { ...empInfo, ...result.employee } });
         return;
       }
 
