@@ -224,13 +224,6 @@ function LoginPage({ onLogin }) {
       // v9.2: phone_login Edge Function — 전화번호만 전송, 서버에서 일괄 처리
       const result = await callAdminApi({ action: "phone_login", phone: digits });
 
-      if (result.error) {
-        const newFail = failCount + 1;
-        setFailCount(newFail);
-        if (newFail >= 5) { setLockUntil(Date.now() + 3 * 60 * 1000); setFailCount(0); throw new Error("5회 실패로 3분간 잠금됩니다."); }
-        throw new Error(result.error);
-      }
-
       if (!result.access_token) throw new Error("로그인 처리 실패");
 
       // 세션 설정
@@ -245,7 +238,16 @@ function LoginPage({ onLogin }) {
       if (rememberPhone) { try { localStorage.setItem(STORAGE_PHONE_KEY, JSON.stringify({ s1: seg1, s2: seg2 })); } catch (_) {} }
       onLogin({ session: sessionData.session, employee: result.employee });
     } catch (e) {
-      setPhoneError(e.message || "등록되지 않은 전화번호입니다.");
+      // 실패 카운트 — callAdminApi는 4xx/5xx에서 throw
+      const newFail = failCount + 1;
+      setFailCount(newFail);
+      if (newFail >= 5) {
+        setLockUntil(Date.now() + 3 * 60 * 1000);
+        setFailCount(0);
+        setPhoneError("5회 실패로 3분간 잠금됩니다.");
+      } else {
+        setPhoneError(e.message || "등록되지 않은 전화번호입니다.");
+      }
     } finally {
       setPhoneLoading(false);
     }
