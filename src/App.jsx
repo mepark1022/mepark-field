@@ -221,80 +221,29 @@ function LoginPage({ onLogin }) {
     setPhoneLoading(true);
     setPhoneError("");
     try {
-      // Edge Function 없이 Supabase RPC로 직접 처리
-      const { data: empRows, error: rpcErr } = await supabase.rpc("get_emp_by_phone", { p_phone: digits });
-      if (rpcErr) throw new Error("서버 오류: " + rpcErr.message);
-      if (!empRows || empRows.length === 0) {
+      // v9.2: phone_login Edge Function — 전화번호만 전송, 서버에서 일괄 처리
+      const result = await callAdminApi({ action: "phone_login", phone: digits });
+
+      if (result.error) {
         const newFail = failCount + 1;
         setFailCount(newFail);
         if (newFail >= 5) { setLockUntil(Date.now() + 3 * 60 * 1000); setFailCount(0); throw new Error("5회 실패로 3분간 잠금됩니다."); }
-        throw new Error("등록되지 않은 전화번호입니다.");
+        throw new Error(result.error);
       }
-      const emp = empRows[0];
-      // pin4 = RPC 반환값 || 입력 전화번호 뒤 4자리 (비밀번호 규칙: mp + 뒤4자리)
-      const pin4 = emp.pin4 || digits.slice(-4);
-      const empNo = emp.emp_no;
-      const empUUID = emp.emp_uuid || emp.emp_id || "";
-      const accountEmail = emp.account_email || "";
-      const systemRole = emp.system_role || "field_member";
-      const empInfo = { emp_no: empNo, emp_id: empNo, name: emp.emp_name, site_code: emp.site_code, work_type: emp.work_code };
-      const pass = `mp${pin4}`;
 
-      // ① empno@mepark.internal 시도 (crew)
-      const { data: auth1, error: err1 } = await supabase.auth.signInWithPassword({
-        email: `${empNo.toLowerCase()}@mepark.internal`, password: pass,
+      if (!result.access_token) throw new Error("로그인 처리 실패");
+
+      // 세션 설정
+      const { data: sessionData, error: sessionErr } = await supabase.auth.setSession({
+        access_token: result.access_token,
+        refresh_token: result.refresh_token,
       });
-      if (!err1 && auth1?.session) {
-        setFailCount(0);
-        if (rememberPhone) { try { localStorage.setItem(STORAGE_PHONE_KEY, JSON.stringify({ s1: seg1, s2: seg2 })); } catch (_) {} }
-        onLogin({ session: auth1.session, employee: { ...empInfo, role: systemRole !== "field_member" ? systemRole : "crew" } });
-        return;
-      }
+      if (sessionErr) throw sessionErr;
 
-      // ② account_email 시도 (admin/super_admin — 실계정 이메일)
-      if (accountEmail) {
-        const { data: auth2, error: err2 } = await supabase.auth.signInWithPassword({
-          email: accountEmail, password: pass,
-        });
-        if (!err2 && auth2?.session) {
-          setFailCount(0);
-          if (rememberPhone) { try { localStorage.setItem(STORAGE_PHONE_KEY, JSON.stringify({ s1: seg1, s2: seg2 })); } catch (_) {} }
-          onLogin({ session: auth2.session, employee: { ...empInfo, role: systemRole } });
-          return;
-        }
-      }
-
-      // ③ empno@field.mepark.internal 시도 (field_member) — 비밀번호: mp{pin4}
-      const { data: auth3, error: err3 } = await supabase.auth.signInWithPassword({
-        email: `${empNo.toLowerCase()}@field.mepark.internal`,
-        password: `mp${pin4}`,
-      });
-      if (!err3 && auth3?.session) {
-        setFailCount(0);
-        if (rememberPhone) { try { localStorage.setItem(STORAGE_PHONE_KEY, JSON.stringify({ s1: seg1, s2: seg2 })); } catch (_) {} }
-        onLogin({ session: auth3.session, employee: { ...empInfo, role: "field_member" } });
-        return;
-      }
-
-      // ④ field_login Edge Function 시도
-      const result = await callAdminApi({ action: "field_login", emp_id: empNo, pin: pin4 });
-      if (!result.error && result.access_token) {
-        const { data: sessionData } = await supabase.auth.setSession({ access_token: result.access_token, refresh_token: result.refresh_token });
-        setFailCount(0);
-        if (rememberPhone) { try { localStorage.setItem(STORAGE_PHONE_KEY, JSON.stringify({ s1: seg1, s2: seg2 })); } catch (_) {} }
-        onLogin({ session: sessionData.session, employee: { ...empInfo, ...result.employee } });
-        return;
-      }
-
-      // 관리자 계정인 경우 사번 로그인 안내
-      if (systemRole === "admin" || systemRole === "super_admin") {
-        throw new Error("관리자 계정입니다. 하단의 '사번으로 로그인'을 이용해주세요.");
-      }
-
-      const newFail = failCount + 1;
-      setFailCount(newFail);
-      if (newFail >= 5) { setLockUntil(Date.now() + 3 * 60 * 1000); setFailCount(0); throw new Error("5회 실패로 3분간 잠금됩니다."); }
-      throw new Error("로그인 실패. 관리자에게 문의하세요.");
+      // 성공 — 전화번호 저장 + 로그인
+      setFailCount(0);
+      if (rememberPhone) { try { localStorage.setItem(STORAGE_PHONE_KEY, JSON.stringify({ s1: seg1, s2: seg2 })); } catch (_) {} }
+      onLogin({ session: sessionData.session, employee: result.employee });
     } catch (e) {
       setPhoneError(e.message || "등록되지 않은 전화번호입니다.");
     } finally {
