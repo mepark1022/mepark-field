@@ -637,6 +637,8 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
   const today = getToday();
   const siteCode = employee?.site_code || "V001";
   const isEdit = !!editReport;
+  const reportDate = isEdit ? editReport.report_date : today;
+  const isPastEdit = isEdit && reportDate !== today;
 
   // 오프라인 임시저장 키
   const DRAFT_KEY = `mepark_field_draft_${siteCode}_${today}`;
@@ -884,7 +886,7 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
     try {
       let reportId = editReport?.id;
       const reportPayload = {
-        report_date: today,
+        report_date: reportDate,
         site_code: siteCode,
         valet_count: autoValetCount,
         valet_amount: payTotal,
@@ -900,7 +902,7 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
         if (ue) throw ue;
       } else {
         const { data: existing } = await supabase.from("daily_reports").select("id")
-          .eq("report_date", today).eq("site_code", siteCode).maybeSingle();
+          .eq("report_date", reportDate).eq("site_code", siteCode).maybeSingle();
         if (existing) {
           setError("오늘 이미 이 사업장의 일보가 제출되었습니다. 홈에서 수정해주세요.");
           setSaving(false);
@@ -971,7 +973,8 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 18, fontWeight: 900 }}>{isEdit ? "📝 일보 수정" : "📝 일보 작성"}</div>
             <div style={{ fontSize: 12, color: "rgba(255,255,255,0.6)", marginTop: 2 }}>
-              {getSiteName(siteCode)} · {formatDateFull(today)}
+              {getSiteName(siteCode)} · {formatDateFull(reportDate)}
+              {isPastEdit && <span style={{ marginLeft: 6, color: C.gold, fontWeight: 800 }}>과거일보</span>}
             </div>
           </div>
         </div>
@@ -1659,8 +1662,8 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
           }}>
             <div style={{ textAlign: "center", marginBottom: 20 }}>
               <div style={{ fontSize: 28, marginBottom: 6 }}>📋</div>
-              <div style={{ fontSize: 17, fontWeight: 900, color: C.dark }}>일보 제출 확인</div>
-              <div style={{ fontSize: 12, color: C.gray, marginTop: 4 }}>{getSiteName(siteCode)} · {formatDate(today)}</div>
+              <div style={{ fontSize: 17, fontWeight: 900, color: C.dark }}>{isEdit ? "일보 수정 확인" : "일보 제출 확인"}</div>
+              <div style={{ fontSize: 12, color: C.gray, marginTop: 4 }}>{getSiteName(siteCode)} · {formatDate(reportDate)}</div>
             </div>
 
             {/* 근무 현황 요약 */}
@@ -1812,6 +1815,9 @@ function HomePage({ employee, rawEmployee, activeSite, onSiteChange, onChangeSit
   const [recentReports, setRecentReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [expandedId, setExpandedId] = useState(null);
+  const [expandedPayments, setExpandedPayments] = useState([]);
+  const [expandedLoading, setExpandedLoading] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -1853,6 +1859,21 @@ function HomePage({ employee, rawEmployee, activeSite, onSiteChange, onChangeSit
   }, [today, siteCode, refreshKey]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // 과거 일보 상세 토글
+  async function toggleExpand(reportId) {
+    if (expandedId === reportId) { setExpandedId(null); return; }
+    setExpandedId(reportId);
+    setExpandedPayments([]);
+    setExpandedLoading(true);
+    try {
+      const { data } = await supabase
+        .from("daily_report_payment").select("*")
+        .eq("report_id", reportId);
+      setExpandedPayments(data || []);
+    } catch (_) {}
+    setExpandedLoading(false);
+  }
 
   const statusBadge = (status) => {
     const map = {
@@ -2034,20 +2055,116 @@ function HomePage({ employee, rawEmployee, activeSite, onSiteChange, onChangeSit
                 </div>
               ) : (
                 <div style={{ display: "grid", gap: 10 }}>
-                  {recentReports.map(r => (
-                    <div key={r.id} style={{
-                      padding: "14px 16px", background: C.lightGray, borderRadius: 14,
-                      display: "flex", justifyContent: "space-between", alignItems: "center",
-                    }}>
-                      <div>
-                        <div style={{ fontSize: 14, fontWeight: 800, color: C.dark }}>{formatDate(r.report_date)}</div>
-                        <div style={{ fontSize: 12, color: C.gray, marginTop: 3 }}>
-                          👥{r.staff_count || 0}명 · 🚗{r.valet_count || 0}건 · 💰{fmt(r.valet_amount)}원
+                  {recentReports.map(r => {
+                    const isExpanded = expandedId === r.id;
+                    return (
+                      <div key={r.id} style={{
+                        background: C.lightGray, borderRadius: 14, overflow: "hidden",
+                        border: isExpanded ? `2px solid ${C.navy}20` : "2px solid transparent",
+                        transition: "border 0.2s",
+                      }}>
+                        {/* 요약 행 (클릭 가능) */}
+                        <div onClick={() => toggleExpand(r.id)} style={{
+                          padding: "14px 16px", cursor: "pointer",
+                          display: "flex", justifyContent: "space-between", alignItems: "center",
+                        }}>
+                          <div>
+                            <div style={{ fontSize: 14, fontWeight: 800, color: C.dark }}>{formatDate(r.report_date)}</div>
+                            <div style={{ fontSize: 12, color: C.gray, marginTop: 3 }}>
+                              👥{r.staff_count || 0}명 · 🚗{r.valet_count || 0}건 · 💰{fmt(r.valet_amount)}원
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            {statusBadge(r.status)}
+                            <span style={{ fontSize: 12, color: C.gray, transition: "transform 0.2s", transform: isExpanded ? "rotate(180deg)" : "rotate(0)" }}>▼</span>
+                          </div>
                         </div>
+
+                        {/* 상세 펼침 영역 */}
+                        {isExpanded && (
+                          <div style={{ padding: "0 16px 16px", borderTop: `1px solid ${C.border}` }}>
+                            {expandedLoading ? (
+                              <div style={{ textAlign: "center", padding: "16px 0" }}>
+                                <Spinner size={24} color={C.navy} />
+                              </div>
+                            ) : (
+                              <>
+                                {/* 결제수단 */}
+                                {expandedPayments.length > 0 && (
+                                  <div style={{ marginTop: 12 }}>
+                                    <div style={{ fontSize: 11, fontWeight: 800, color: C.gray, marginBottom: 6 }}>💳 결제수단</div>
+                                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                      {expandedPayments.filter(p => toNum(p.amount) > 0 || (p.payment_type === "free_valet" && toNum(p.count) > 0)).map(p => {
+                                        const pt = PAYMENT_TYPES.find(t => t.key === p.payment_type);
+                                        const isFV = p.payment_type === "free_valet";
+                                        return (
+                                          <span key={p.payment_type} style={{
+                                            padding: "4px 10px", borderRadius: 8,
+                                            background: isFV ? "#dcfce7" : C.white, fontSize: 12, fontWeight: 700,
+                                            color: isFV ? "#16A34A" : C.dark,
+                                          }}>
+                                            {pt?.icon} {pt?.label} {isFV ? `${toNum(p.count)}건` : `${fmt(p.amount)}원`}
+                                          </span>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* 첨부 사진 */}
+                                {r.images && r.images.length > 0 && (
+                                  <div style={{ marginTop: 12, display: "flex", gap: 6, overflowX: "auto" }}>
+                                    {r.images.map((img, idx) => (
+                                      <img key={idx} src={img.url} alt="첨부"
+                                        style={{ width: 52, height: 52, borderRadius: 10, objectFit: "cover", flexShrink: 0 }} />
+                                    ))}
+                                    <span style={{ fontSize: 11, color: C.gray, alignSelf: "center", flexShrink: 0, marginLeft: 4 }}>
+                                      📷 {r.images.length}장
+                                    </span>
+                                  </div>
+                                )}
+
+                                {/* 메모 */}
+                                {r.memo && (
+                                  <div style={{
+                                    marginTop: 10, padding: "8px 12px", background: "#fffde7",
+                                    borderRadius: 10, fontSize: 13, color: C.dark, lineHeight: 1.5,
+                                  }}>
+                                    💬 {r.memo}
+                                  </div>
+                                )}
+
+                                {/* 결제수단·사진·메모 모두 없을 때 */}
+                                {expandedPayments.filter(p => toNum(p.amount) > 0 || (p.payment_type === "free_valet" && toNum(p.count) > 0)).length === 0 && !r.memo && (!r.images || r.images.length === 0) && (
+                                  <div style={{ marginTop: 12, fontSize: 13, color: C.gray, textAlign: "center", padding: "8px 0" }}>
+                                    추가 상세 정보가 없습니다.
+                                  </div>
+                                )}
+
+                                {/* 수정 / 확정 버튼 */}
+                                <div style={{ marginTop: 14 }}>
+                                  {r.status !== "confirmed" ? (
+                                    <button onClick={(e) => { e.stopPropagation(); onNavigate("form", { report: r, payments: expandedPayments }); }}
+                                      style={{
+                                        width: "100%", padding: "12px", background: C.white, color: C.navy,
+                                        border: `2px solid ${C.navy}`, borderRadius: 12,
+                                        fontSize: 14, fontWeight: 800, fontFamily: FONT, cursor: "pointer",
+                                      }}>
+                                      ✏️ 수정하기
+                                    </button>
+                                  ) : (
+                                    <div style={{ padding: "8px", textAlign: "center", fontSize: 13, color: C.green, fontWeight: 700 }}>
+                                      ✅ 관리자에 의해 확정되었습니다
+                                    </div>
+                                  )}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      {statusBadge(r.status)}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
