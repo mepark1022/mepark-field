@@ -156,6 +156,7 @@ function LoginPage({ onLogin }) {
   // ── 전화번호 모드 state ──
   const [seg1, setSeg1] = useState("");  // 4자리
   const [seg2, setSeg2] = useState("");  // 4자리
+  const [phonePw, setPhonePw] = useState(""); // 비밀번호
   const [phoneLoading, setPhoneLoading] = useState(false);
   const [phoneError, setPhoneError] = useState("");
   const [rememberPhone, setRememberPhone] = useState(() => !!localStorage.getItem(STORAGE_PHONE_KEY));
@@ -191,12 +192,11 @@ function LoginPage({ onLogin }) {
     const v = e.target.value.replace(/\D/g, "").slice(0, 4);
     setSeg1(v); setPhoneError("");
     if (v.length === 4) { document.getElementById("mpLoginSeg2")?.focus(); }
-    if (v.length === 4 && seg2.length === 4) { setTimeout(() => handlePhoneLogin("010" + v + seg2), 300); }
   }
   function handleSeg2Change(e) {
     const v = e.target.value.replace(/\D/g, "").slice(0, 4);
     setSeg2(v); setPhoneError("");
-    if (v.length === 4 && seg1.length === 4) { setTimeout(() => handlePhoneLogin("010" + seg1 + v), 300); }
+    if (v.length === 4 && seg1.length === 4) { document.getElementById("mpLoginPw")?.focus(); }
   }
 
   function toggleRememberPhone() {
@@ -218,12 +218,13 @@ function LoginPage({ onLogin }) {
     }
     const digits = (phoneVal || getPhoneDigits()).replace(/\D/g, "");
     if (digits.length !== 11) { setPhoneError("전화번호 11자리를 입력해주세요."); return; }
+    if (!phonePw) { setPhoneError("비밀번호를 입력해주세요."); return; }
 
     setPhoneLoading(true);
     setPhoneError("");
     try {
-      // v9.2: phone_login Edge Function — 전화번호만 전송, 서버에서 일괄 처리
-      const result = await callAdminApi({ action: "phone_login", phone: digits });
+      // v8: phone_login — 전화번호 + 비밀번호 전송
+      const result = await callAdminApi({ action: "phone_login", phone: digits, password: phonePw });
 
       if (!result.access_token) throw new Error("로그인 처리 실패");
 
@@ -268,35 +269,18 @@ function LoginPage({ onLogin }) {
   }
 
   function handlePinKey(key) {
-    if (key === "del") { setPin(p => p.slice(0, -1)); setError(""); return; }
-    if (pin.length >= 4) return;
-    const next = pin + key;
-    setPin(next);
-    setError("");
-    if (next.length === 4) setTimeout(() => handlePinLogin(next), 150);
+    // legacy — not used anymore
   }
 
-  async function handlePinLogin(pinValue) {
+  async function handlePinLogin(pw) {
+    if (!pw) { setError("비밀번호를 입력해주세요."); return; }
     setLoading(true);
     setError("");
     const id = empId.trim().toUpperCase();
     try {
-      const email = `${id.toLowerCase()}@mepark.internal`;
-      const password = `mp${pinValue}`;
-      const { data: authData, error: authErr } = await supabase.auth.signInWithPassword({ email, password });
-      if (!authErr && authData?.user) {
-        const { data: prof } = await supabase.from("profiles")
-          .select("name, site_code, role, emp_no").eq("id", authData.user.id).single();
-        if (prof) {
-          onLogin({
-            session: authData.session,
-            employee: { name: prof.name, emp_no: prof.emp_no || id, emp_id: prof.emp_no || id, site_code: prof.site_code, role: prof.role }
-          });
-          return;
-        }
-      }
-      const result = await callAdminApi({ action: "field_login", emp_id: id, pin: pinValue });
-      if (result.error) throw new Error("PIN이 올바르지 않습니다.");
+      // v8: field_login — 사번 + 비밀번호
+      const result = await callAdminApi({ action: "field_login", emp_id: id, password: pw });
+      if (result.error) throw new Error(result.error);
       if (!result.access_token) throw new Error("로그인 처리 실패");
       const { data: sessionData, error: sessionErr } = await supabase.auth.setSession({
         access_token: result.access_token, refresh_token: result.refresh_token,
@@ -304,14 +288,14 @@ function LoginPage({ onLogin }) {
       if (sessionErr) throw sessionErr;
       onLogin({ session: sessionData.session, employee: result.employee });
     } catch (e) {
-      setError("PIN이 올바르지 않습니다.");
+      setError(e.message || "비밀번호가 올바르지 않습니다.");
       setPin("");
     } finally {
       setLoading(false);
     }
   }
 
-  const pinKeys = [["1","2","3"],["4","5","6"],["7","8","9"],["","0","del"]];
+  // pinKeys removed — v8 uses password input instead of PIN pad
 
   return (
     <div style={{
@@ -436,8 +420,31 @@ function LoginPage({ onLogin }) {
                 />
               </div>
               <div style={{ fontSize: 11, color: C.gray, marginTop: 6, textAlign: "center" }}>
-                11자리 완성 시 자동 로그인 · 비밀번호 불필요
+                초기 비밀번호: 전화번호 뒤 4자리 + 12
               </div>
+            </div>
+
+            {/* 비밀번호 */}
+            <div style={{ marginBottom: 4 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.gray, display: "block", marginBottom: 6 }}>비밀번호</label>
+              <input
+                id="mpLoginPw"
+                type="password" inputMode="numeric"
+                value={phonePw}
+                onChange={e => { setPhonePw(e.target.value); setPhoneError(""); }}
+                onKeyDown={e => { if (e.key === "Enter" && isPhoneComplete() && phonePw) handlePhoneLogin(); }}
+                placeholder="비밀번호 입력"
+                autoComplete="current-password"
+                style={{
+                  width: "100%", padding: "14px 16px",
+                  border: `2px solid ${phoneError ? C.red : phonePw ? C.navy : C.border}`,
+                  borderRadius: 14, fontSize: 18, fontWeight: 700,
+                  color: C.dark, background: C.lightGray,
+                  outline: "none", letterSpacing: 3,
+                  boxSizing: "border-box", fontFamily: FONT,
+                  transition: "border-color 0.2s",
+                }}
+              />
             </div>
 
             {/* 아이디 기억하기 */}
@@ -485,13 +492,13 @@ function LoginPage({ onLogin }) {
             ) : (
               <button
                 onClick={() => handlePhoneLogin()}
-                disabled={!isPhoneComplete()}
+                disabled={!isPhoneComplete() || !phonePw}
                 style={{
                   width: "100%", padding: "15px",
-                  background: isPhoneComplete() ? C.navy : C.border,
+                  background: isPhoneComplete() && phonePw ? C.navy : C.border,
                   color: C.white, border: "none", borderRadius: 14,
                   fontSize: 16, fontWeight: 800, fontFamily: FONT,
-                  cursor: isPhoneComplete() ? "pointer" : "not-allowed",
+                  cursor: isPhoneComplete() && phonePw ? "pointer" : "not-allowed",
                   transition: "background 0.2s",
                 }}>
                 로그인
@@ -564,17 +571,30 @@ function LoginPage({ onLogin }) {
                   <div style={{ fontSize: 20, fontWeight: 800, color: C.dark, marginBottom: 4 }}>
                     안녕하세요, <span style={{ color: C.navy }}>{empName}</span>님!
                   </div>
-                  <div style={{ fontSize: 13, color: C.gray }}>4자리 PIN을 입력해주세요</div>
+                  <div style={{ fontSize: 13, color: C.gray }}>비밀번호를 입력해주세요</div>
                 </div>
-                <div style={{ display: "flex", gap: 14, justifyContent: "center", marginBottom: 24 }}>
-                  {[0,1,2,3].map(i => (
-                    <div key={i} style={{
-                      width: 18, height: 18, borderRadius: "50%",
-                      background: i < pin.length ? C.navy : "transparent",
-                      border: `2.5px solid ${i < pin.length ? C.navy : C.border}`,
-                      transition: "all 0.15s", transform: i < pin.length ? "scale(1.15)" : "scale(1)",
-                    }} />
-                  ))}
+                <div style={{ marginBottom: 16 }}>
+                  <input
+                    type="password"
+                    value={pin}
+                    onChange={e => { setPin(e.target.value); setError(""); }}
+                    onKeyDown={e => { if (e.key === "Enter" && pin) handlePinLogin(pin); }}
+                    placeholder="비밀번호 입력"
+                    autoComplete="current-password"
+                    autoFocus
+                    style={{
+                      width: "100%", padding: "14px 16px",
+                      border: `2px solid ${error ? C.red : pin ? C.navy : C.border}`,
+                      borderRadius: 14, fontSize: 18, fontWeight: 700,
+                      color: C.dark, background: C.lightGray,
+                      outline: "none", letterSpacing: 2,
+                      boxSizing: "border-box", fontFamily: FONT,
+                      transition: "border-color 0.2s",
+                    }}
+                  />
+                  <div style={{ fontSize: 11, color: C.gray, marginTop: 6, textAlign: "center" }}>
+                    초기 비밀번호: 전화번호 뒤 4자리 + 12
+                  </div>
                 </div>
                 {error && (
                   <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 10, padding: "10px 14px", color: C.red, fontSize: 13, fontWeight: 600, marginBottom: 16, textAlign: "center" }}>
@@ -587,29 +607,16 @@ function LoginPage({ onLogin }) {
                     <div style={{ color: C.gray, fontSize: 13, marginTop: 12 }}>로그인 중...</div>
                   </div>
                 ) : (
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-                    {pinKeys.flat().map((key, idx) => {
-                      if (!key) return <div key={idx} />;
-                      const isDel = key === "del";
-                      return (
-                        <button key={idx} onClick={() => handlePinKey(key)}
-                          style={{
-                            padding: "18px 0", background: isDel ? "#fef3f3" : C.lightGray,
-                            border: `1.5px solid ${isDel ? "#fca5a5" : C.border}`,
-                            borderRadius: 14, fontSize: isDel ? 18 : 24,
-                            fontWeight: isDel ? 600 : 700, color: isDel ? C.red : C.dark,
-                            transition: "all 0.1s", fontFamily: FONT,
-                          }}
-                          onTouchStart={e => e.currentTarget.style.background = isDel ? "#fee2e2" : C.border}
-                          onTouchEnd={e => e.currentTarget.style.background = isDel ? "#fef3f3" : C.lightGray}
-                          onMouseDown={e => e.currentTarget.style.background = isDel ? "#fee2e2" : C.border}
-                          onMouseUp={e => e.currentTarget.style.background = isDel ? "#fef3f3" : C.lightGray}
-                        >
-                          {isDel ? "⌫" : key}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <button onClick={() => handlePinLogin(pin)} disabled={!pin}
+                    style={{
+                      width: "100%", padding: "15px",
+                      background: pin ? C.navy : C.border,
+                      color: C.white, border: "none", borderRadius: 14,
+                      fontSize: 16, fontWeight: 800, fontFamily: FONT,
+                      cursor: pin ? "pointer" : "not-allowed",
+                    }}>
+                    로그인
+                  </button>
                 )}
               </>
             )}
@@ -618,7 +625,7 @@ function LoginPage({ onLogin }) {
       </div>
 
       <div style={{ color: "rgba(255,255,255,0.35)", fontSize: 12, marginTop: 24, textAlign: "center" }}>
-        {loginMode === "phone" ? "전화번호가 등록되지 않은 경우 관리자에게 문의하세요" : "PIN을 모를 경우 관리자에게 문의하세요"}
+        {loginMode === "phone" ? "전화번호가 등록되지 않은 경우 관리자에게 문의하세요" : "비밀번호를 모를 경우 관리자에게 문의하세요"}
       </div>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
@@ -2278,7 +2285,7 @@ const FIELD_BUG_PRIORITY = {
   high:     { label: "높음", color: "#DC2626", bg: "#fef2f2" },
   critical: { label: "긴급", color: "#7C3AED", bg: "#f5f3ff" },
 };
-const FIELD_PAGE_LABELS = { home: "홈/일보목록", form: "일보 작성", payslip: "급여내역서" };
+const FIELD_PAGE_LABELS = { home: "홈/일보목록", form: "일보 작성", payslip: "급여내역서", changepw: "비밀번호 변경" };
 
 async function fieldFileToBase64(file) {
   return new Promise((res, rej) => {
@@ -2307,6 +2314,145 @@ async function fieldAiClassifyBug(title, description) {
     const text = data.content?.[0]?.text || "";
     return JSON.parse(text.replace(/```json|```/g, "").trim());
   } catch { return null; }
+}
+
+// ─── 비밀번호 변경 페이지 ───────────────────────────────────────────────
+function ChangePasswordPage({ employee, onBack, onToast }) {
+  const [currentPw, setCurrentPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
+
+  async function handleSubmit() {
+    setError("");
+    if (!currentPw) { setError("현재 비밀번호를 입력해주세요."); return; }
+    if (!newPw) { setError("새 비밀번호를 입력해주세요."); return; }
+    if (newPw.length < 6) { setError("새 비밀번호는 6자 이상이어야 합니다."); return; }
+    if (newPw !== confirmPw) { setError("새 비밀번호가 일치하지 않습니다."); return; }
+    if (currentPw === newPw) { setError("현재 비밀번호와 새 비밀번호가 같습니다."); return; }
+
+    setLoading(true);
+    try {
+      const result = await callAdminApi({
+        action: "change_password",
+        emp_no: employee?.emp_no || employee?.emp_id,
+        current_password: currentPw,
+        new_password: newPw,
+      });
+      if (result.error) throw new Error(result.error);
+      setSuccess(true);
+      if (onToast) onToast({ message: "비밀번호가 변경되었습니다!", type: "success" });
+    } catch (e) {
+      setError(e.message || "비밀번호 변경에 실패했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const fieldStyle = {
+    width: "100%", padding: "14px 16px",
+    border: `2px solid ${C.border}`, borderRadius: 14,
+    fontSize: 16, fontWeight: 600, color: C.dark,
+    background: C.lightGray, outline: "none",
+    boxSizing: "border-box", fontFamily: FONT,
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.lightGray, fontFamily: FONT }}>
+      {/* 헤더 */}
+      <div style={{ background: C.navy, color: C.white, padding: "env(safe-area-inset-top, 0) 0 0" }}>
+        <div style={{ padding: "16px 20px 20px", display: "flex", alignItems: "center", gap: 12 }}>
+          <button onClick={onBack} style={{
+            background: "rgba(255,255,255,0.15)", border: "none", borderRadius: 10,
+            color: C.white, padding: "8px 12px", fontSize: 14, fontWeight: 700, fontFamily: FONT,
+          }}>← 뒤로</button>
+          <div style={{ fontSize: 18, fontWeight: 900 }}>🔒 비밀번호 변경</div>
+        </div>
+      </div>
+
+      <div style={{ padding: "24px 20px 120px" }}>
+        {success ? (
+          <div style={{
+            background: C.white, borderRadius: 20, padding: "40px 24px",
+            textAlign: "center", boxShadow: "0 4px 16px rgba(0,0,0,0.06)",
+          }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
+            <div style={{ fontSize: 18, fontWeight: 900, color: C.dark, marginBottom: 8 }}>비밀번호 변경 완료</div>
+            <div style={{ fontSize: 14, color: C.gray, marginBottom: 24 }}>다음 로그인 시 새 비밀번호를 사용해주세요.</div>
+            <button onClick={onBack} style={{
+              padding: "14px 40px", background: C.navy, color: C.white,
+              border: "none", borderRadius: 14, fontSize: 15, fontWeight: 800, fontFamily: FONT,
+            }}>확인</button>
+          </div>
+        ) : (
+          <div style={{
+            background: C.white, borderRadius: 20, padding: "24px 20px",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.06)",
+          }}>
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: C.dark, marginBottom: 4 }}>{employee?.name}님</div>
+              <div style={{ fontSize: 12, color: C.gray }}>사번: {employee?.emp_no || employee?.emp_id}</div>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.gray, display: "block", marginBottom: 6 }}>현재 비밀번호</label>
+              <input type="password" value={currentPw}
+                onChange={e => { setCurrentPw(e.target.value); setError(""); }}
+                placeholder="현재 비밀번호"
+                style={fieldStyle} />
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.gray, display: "block", marginBottom: 6 }}>새 비밀번호</label>
+              <input type="password" value={newPw}
+                onChange={e => { setNewPw(e.target.value); setError(""); }}
+                placeholder="6자 이상"
+                style={fieldStyle} />
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: C.gray, display: "block", marginBottom: 6 }}>새 비밀번호 확인</label>
+              <input type="password" value={confirmPw}
+                onChange={e => { setConfirmPw(e.target.value); setError(""); }}
+                onKeyDown={e => { if (e.key === "Enter") handleSubmit(); }}
+                placeholder="새 비밀번호 다시 입력"
+                style={fieldStyle} />
+              {confirmPw && newPw && confirmPw !== newPw && (
+                <div style={{ fontSize: 11, color: C.red, marginTop: 4, fontWeight: 600 }}>⚠️ 비밀번호가 일치하지 않습니다</div>
+              )}
+              {confirmPw && newPw && confirmPw === newPw && (
+                <div style={{ fontSize: 11, color: C.green, marginTop: 4, fontWeight: 600 }}>✅ 비밀번호 일치</div>
+              )}
+            </div>
+
+            {error && (
+              <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 10, padding: "10px 14px", color: C.red, fontSize: 13, fontWeight: 600, marginBottom: 16, textAlign: "center" }}>
+                ⚠️ {error}
+              </div>
+            )}
+
+            <button onClick={handleSubmit} disabled={loading || !currentPw || !newPw || newPw !== confirmPw}
+              style={{
+                width: "100%", padding: "15px",
+                background: loading || !currentPw || !newPw || newPw !== confirmPw ? C.border : C.navy,
+                color: C.white, border: "none", borderRadius: 14,
+                fontSize: 16, fontWeight: 800, fontFamily: FONT,
+                cursor: loading ? "wait" : "pointer",
+              }}>
+              {loading ? "변경 중..." : "비밀번호 변경"}
+            </button>
+
+            <div style={{ marginTop: 16, padding: "12px 16px", background: "#f0f4ff", borderRadius: 12, fontSize: 12, color: C.gray, lineHeight: 1.6 }}>
+              💡 <strong>초기 비밀번호</strong>: 전화번호 뒤 4자리 + 12<br />
+              예) 010-1234-<strong>5678</strong> → <strong>567812</strong>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function FieldBugReportFAB({ currentPage, employee }) {
@@ -2758,12 +2904,14 @@ export default function App() {
         />
       ) : page === "payslip" ? (
         <PayslipPage employee={employee} onBack={() => setPage("home")} />
+      ) : page === "changepw" ? (
+        <ChangePasswordPage employee={employee} onBack={() => setPage("home")} onToast={msg => setToast(msg)} />
       ) : (
         <HomePage employee={activeEmployee} rawEmployee={employee} activeSite={activeSite} onSiteChange={setActiveSite} onChangeSite={() => setAuthState("select_site")} onLogout={handleLogout} onNavigate={handleNavigate} />
       )}
 
       {/* ── 하단 탭 바 ── */}
-      {page !== "form" && (
+      {page !== "form" && page !== "changepw" && (
         <div style={{
           position: "fixed", bottom: 0, left: 0, right: 0, background: C.white,
           borderTop: `1px solid ${C.border}`, display: "flex", zIndex: 100,
@@ -2773,6 +2921,7 @@ export default function App() {
           {[
             { key: "home", icon: "🏠", label: "홈", badge: 0 },
             { key: "payslip", icon: "💰", label: "급여", badge: unreadPayslips },
+            { key: "changepw", icon: "⚙️", label: "설정", badge: 0 },
           ].map(tab => (
             <button key={tab.key} onClick={() => { setPage(tab.key); setPageData(null); }}
               style={{
