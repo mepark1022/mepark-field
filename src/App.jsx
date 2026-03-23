@@ -32,10 +32,11 @@ const DUTY_TYPES = [
 ];
 
 const PAYMENT_TYPES = [
-  { key: "cash",     label: "현금",     icon: "💵" },
-  { key: "card",     label: "카드",     icon: "💳" },
-  { key: "transfer", label: "계좌이체", icon: "🏦" },
-  { key: "etc",      label: "기타",     icon: "📋" },
+  { key: "cash",        label: "현금",     icon: "💵" },
+  { key: "card",        label: "카드",     icon: "💳" },
+  { key: "transfer",    label: "계좌이체", icon: "🏦" },
+  { key: "free_valet",  label: "무료발렛", icon: "🆓" },
+  { key: "etc",         label: "기타",     icon: "📋" },
 ];
 
 // ─── 사업장 마스터 (ERP와 동기화된 기본값) ──────────────────────────────
@@ -802,8 +803,8 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
       const updated = f.payList.map((p, i) => {
         if (i !== idx) return p;
         const newP = { ...p, [field]: val };
-        // 건수 변경 시 기타 제외하고 단가 있으면 금액 자동계산
-        if (field === "count" && p.payment_type !== "etc" && valetRate > 0) {
+        // 건수 변경 시 기타/무료발렛 제외하고 단가 있으면 금액 자동계산
+        if (field === "count" && p.payment_type !== "etc" && p.payment_type !== "free_valet" && valetRate > 0) {
           newP.amount = toNum(val) * valetRate;
         }
         return newP;
@@ -1474,23 +1475,37 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
             {form.payList.map((p, idx) => {
               const pt = PAYMENT_TYPES.find(t => t.key === p.payment_type);
               const isEtc = p.payment_type === "etc";
+              const isFreeValet = p.payment_type === "free_valet";
               const hasAmount = toNum(p.amount) > 0;
+              const hasCount = toNum(p.count) > 0;
+              const isActive = isFreeValet ? hasCount : hasAmount;
               return (
                 <div key={p.payment_type} style={{
-                  border: `1.5px solid ${hasAmount ? C.navy + "40" : C.border}`,
+                  border: `1.5px solid ${isActive ? (isFreeValet ? "#43A047" + "40" : C.navy + "40") : C.border}`,
                   borderRadius: 14, padding: "14px",
-                  background: hasAmount ? "#f0f2ff" : C.white,
+                  background: isActive ? (isFreeValet ? "#f0fdf4" : "#f0f2ff") : C.white,
                   transition: "all 0.2s",
                 }}>
                   <div style={{ fontSize: 13, fontWeight: 800, color: C.dark, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
                     {pt?.icon} {pt?.label}
-                    {!isEtc && valetRate > 0 && (
+                    {isFreeValet && (
+                      <span style={{ fontSize: 10, color: C.gray, fontWeight: 500, marginLeft: "auto" }}>
+                        요금 없음
+                      </span>
+                    )}
+                    {!isEtc && !isFreeValet && valetRate > 0 && (
                       <span style={{ fontSize: 10, color: C.gray, fontWeight: 500, marginLeft: "auto" }}>
                         건당 {fmt(valetRate)}원
                       </span>
                     )}
                   </div>
-                  {isEtc ? (
+                  {isFreeValet ? (
+                    /* 무료발렛: 건수만 입력 */
+                    <div>
+                      <label style={{ ...labelStyle, fontSize: 11 }}>건수</label>
+                      <NumInput value={p.count} onChange={v => updatePay(idx, "count", v)} suffix="건" />
+                    </div>
+                  ) : isEtc ? (
                     /* 기타: 금액 수기입력 */
                     <div>
                       <label style={{ ...labelStyle, fontSize: 11 }}>금액</label>
@@ -1509,8 +1524,8 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
                       </div>
                     </div>
                   )}
-                  {/* 건수 있을 때 건당 계산 표시 */}
-                  {!isEtc && toNum(p.count) > 0 && toNum(p.amount) > 0 && (
+                  {/* 건수 있을 때 건당 계산 표시 (무료발렛 제외) */}
+                  {!isEtc && !isFreeValet && toNum(p.count) > 0 && toNum(p.amount) > 0 && (
                     <div style={{ fontSize: 11, color: C.gray, textAlign: "right", marginTop: 4 }}>
                       {toNum(p.count)}건 × {fmt(valetRate > 0 ? valetRate : Math.round(toNum(p.amount) / toNum(p.count)))}원
                     </div>
@@ -1705,10 +1720,11 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
               <div style={{ display: "grid", gap: 6 }}>
                 {form.payList.filter(p => toNum(p.count) > 0 || toNum(p.amount) > 0).map(p => {
                   const pt = PAYMENT_TYPES.find(t => t.key === p.payment_type);
+                  const isFV = p.payment_type === "free_valet";
                   return (
                     <div key={p.payment_type} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
                       <span style={{ color: C.gray }}>{pt?.icon} {pt?.label}{toNum(p.count) > 0 ? ` ${toNum(p.count)}건` : ""}</span>
-                      <span style={{ fontWeight: 800, color: C.dark, fontFamily: "monospace" }}>{fmt(p.amount)}원</span>
+                      <span style={{ fontWeight: 800, color: isFV ? "#43A047" : C.dark, fontFamily: "monospace" }}>{isFV ? "무료" : `${fmt(p.amount)}원`}</span>
                     </div>
                   );
                 })}
@@ -1919,14 +1935,15 @@ function HomePage({ employee, rawEmployee, activeSite, onSiteChange, onLogout, o
 
                   {todayPayments.length > 0 && (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
-                      {todayPayments.filter(p => toNum(p.amount) > 0).map(p => {
+                      {todayPayments.filter(p => toNum(p.amount) > 0 || (p.payment_type === "free_valet" && toNum(p.count) > 0)).map(p => {
                         const pt = PAYMENT_TYPES.find(t => t.key === p.payment_type);
+                        const isFV = p.payment_type === "free_valet";
                         return (
                           <span key={p.payment_type} style={{
                             padding: "4px 10px", borderRadius: 8,
-                            background: C.lightGray, fontSize: 12, fontWeight: 700, color: C.dark,
+                            background: isFV ? "#dcfce7" : C.lightGray, fontSize: 12, fontWeight: 700, color: isFV ? "#16A34A" : C.dark,
                           }}>
-                            {pt?.icon} {pt?.label} {fmt(p.amount)}원
+                            {pt?.icon} {pt?.label} {isFV ? `${toNum(p.count)}건` : `${fmt(p.amount)}원`}
                           </span>
                         );
                       })}
