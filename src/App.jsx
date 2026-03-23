@@ -696,8 +696,8 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
       try {
         const { data, error } = await supabase
           .from("employees")
-          .select("id, emp_no, name, position, work_code, status")
-          .eq("site_code_1", siteCode)
+          .select("id, emp_no, name, position, work_code, site_code_1, site_code_2, status")
+          .or(`site_code_1.eq.${siteCode},site_code_2.eq.${siteCode}`)
           .in("status", ["active", "재직"])
           .order("emp_no");
         if (!error && data) setSiteEmployees(data);
