@@ -925,12 +925,22 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
       await supabase.from("daily_report_staff").delete().eq("report_id", reportId);
       const staffRows = (form.selectedStaff || []).map(s => {
         const ex = extraWork[s.emp_no];
+        // 근무시간 계산 (check_in/check_out → hours)
+        let workH = 0;
+        if (s.check_in && s.check_out) {
+          const [sh, sm] = s.check_in.split(":").map(Number);
+          const [eh, em] = s.check_out.split(":").map(Number);
+          const mins = (eh * 60 + em) - (sh * 60 + sm);
+          workH = mins > 0 ? Math.round(mins / 60 * 10) / 10 : 0;
+        }
         return {
           report_id: reportId,
           employee_id: s.employee_id || null,
           name_raw: s.duty === "part" ? s.name : null,
           staff_type: s.duty || "site",
-          work_hours: 0,
+          work_hours: workH,
+          check_in: s.check_in || null,
+          check_out: s.check_out || null,
           extra_type: ex?.typeName || null,
           extra_amount: ex?.amount ? Math.round(ex.amount) : null,
         };
@@ -1397,49 +1407,103 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
               <div style={{ textAlign: "center", padding: "16px 0", color: C.gray, fontSize: 13 }}>
                 등록된 직원이 없습니다.
               </div>
-            ) : (
-              <div style={{ display: "grid", gap: 6, maxHeight: 280, overflowY: "auto" }}>
-                {siteEmployees.map(emp => {
-                  const extraKey = `${emp.emp_no}_extra`;
-                  const isSelected = form.selectedStaff.some(s => s.emp_no === extraKey);
-                  return (
-                    <button key={emp.emp_no} onClick={() => {
-                      setForm(f => {
-                        const exists = f.selectedStaff.find(s => s.emp_no === extraKey);
-                        const next = exists
-                          ? f.selectedStaff.filter(s => s.emp_no !== extraKey)
-                          : [...f.selectedStaff, { emp_no: extraKey, name: emp.name, duty: "extra", employee_id: emp.id }];
-                        return { ...f, selectedStaff: next, staff_count: next.length };
-                      });
-                    }} style={{
-                      display: "flex", alignItems: "center", gap: 10,
-                      padding: "10px 14px", borderRadius: 12,
-                      border: `1.5px solid ${isSelected ? "#8B5CF660" : C.border}`,
-                      background: isSelected ? "#f3f0ff" : C.white,
-                      textAlign: "left", fontFamily: FONT, cursor: "pointer",
-                    }}>
-                      <div style={{ width: 22, height: 22, borderRadius: 6, flexShrink: 0,
-                        border: `2px solid ${isSelected ? "#8B5CF6" : C.border}`,
-                        background: isSelected ? "#8B5CF6" : C.white,
-                        display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        {isSelected && <span style={{ color: C.white, fontSize: 13, fontWeight: 900 }}>✓</span>}
+            ) : (() => {
+              const calcExtraHours = (ci, co) => {
+                if (!ci || !co) return 0;
+                const [sh, sm] = ci.split(":").map(Number);
+                const [eh, em] = co.split(":").map(Number);
+                const mins = (eh * 60 + em) - (sh * 60 + sm);
+                return mins > 0 ? Math.round(mins / 60 * 10) / 10 : 0;
+              };
+              const updateExtraTime = (extraKey, field, value) => {
+                setForm(f => ({
+                  ...f,
+                  selectedStaff: f.selectedStaff.map(s =>
+                    s.emp_no === extraKey ? { ...s, [field]: value } : s
+                  ),
+                }));
+              };
+              return (
+                <div style={{ display: "grid", gap: 8, maxHeight: 400, overflowY: "auto" }}>
+                  {siteEmployees.map(emp => {
+                    const extraKey = `${emp.emp_no}_extra`;
+                    const staffItem = form.selectedStaff.find(s => s.emp_no === extraKey);
+                    const isSelected = !!staffItem;
+                    const ci = staffItem?.check_in || "";
+                    const co = staffItem?.check_out || "";
+                    const hrs = calcExtraHours(ci, co);
+                    return (
+                      <div key={emp.emp_no} style={{
+                        borderRadius: 14, overflow: "hidden",
+                        border: `1.5px solid ${isSelected ? "#8B5CF660" : C.border}`,
+                        background: isSelected ? "#f3f0ff" : C.white,
+                      }}>
+                        <button onClick={() => {
+                          setForm(f => {
+                            const exists = f.selectedStaff.find(s => s.emp_no === extraKey);
+                            const next = exists
+                              ? f.selectedStaff.filter(s => s.emp_no !== extraKey)
+                              : [...f.selectedStaff, { emp_no: extraKey, name: emp.name, duty: "extra", employee_id: emp.id, check_in: "", check_out: "" }];
+                            return { ...f, selectedStaff: next, staff_count: next.length };
+                          });
+                        }} style={{
+                          display: "flex", alignItems: "center", gap: 10, width: "100%",
+                          padding: "10px 14px", border: "none",
+                          background: "transparent",
+                          textAlign: "left", fontFamily: FONT, cursor: "pointer",
+                        }}>
+                          <div style={{ width: 22, height: 22, borderRadius: 6, flexShrink: 0,
+                            border: `2px solid ${isSelected ? "#8B5CF6" : C.border}`,
+                            background: isSelected ? "#8B5CF6" : C.white,
+                            display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            {isSelected && <span style={{ color: C.white, fontSize: 13, fontWeight: 900 }}>✓</span>}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: C.dark }}>{emp.name}</div>
+                            <div style={{ fontSize: 11, color: C.gray, marginTop: 1 }}>
+                              {emp.emp_no} · {emp.position || ""} {emp.work_code ? `(${emp.work_code})` : ""}
+                            </div>
+                          </div>
+                          {isSelected && (
+                            <span style={{ fontSize: 10, fontWeight: 800, color: "#8B5CF6",
+                              background: C.white, padding: "2px 7px", borderRadius: 20,
+                              border: "1.5px solid #8B5CF640", flexShrink: 0 }}>추가근무</span>
+                          )}
+                        </button>
+                        {/* 시간 입력 (선택된 경우만) */}
+                        {isSelected && (
+                          <div style={{ padding: "0 14px 12px", display: "flex", alignItems: "center", gap: 6 }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: "#8B5CF6", marginBottom: 3 }}>시작</div>
+                              <input type="time" value={ci}
+                                onChange={e => updateExtraTime(extraKey, "check_in", e.target.value)}
+                                style={{ width: "100%", padding: "7px 8px", border: "1.5px solid #C4B5FD",
+                                  borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: FONT,
+                                  background: "#fff", outline: "none", color: C.dark }} />
+                            </div>
+                            <span style={{ fontSize: 14, color: "#A78BFA", marginTop: 16, fontWeight: 700 }}>→</span>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: "#8B5CF6", marginBottom: 3 }}>종료</div>
+                              <input type="time" value={co}
+                                onChange={e => updateExtraTime(extraKey, "check_out", e.target.value)}
+                                style={{ width: "100%", padding: "7px 8px", border: "1.5px solid #C4B5FD",
+                                  borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: FONT,
+                                  background: "#fff", outline: "none", color: C.dark }} />
+                            </div>
+                            {hrs > 0 && (
+                              <div style={{ background: "#7C3AED", borderRadius: 8, padding: "6px 10px",
+                                textAlign: "center", marginTop: 16, flexShrink: 0 }}>
+                                <div style={{ fontSize: 13, fontWeight: 800, color: "#fff" }}>{hrs}h</div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: C.dark }}>{emp.name}</div>
-                        <div style={{ fontSize: 11, color: C.gray, marginTop: 1 }}>
-                          {emp.emp_no} · {emp.position || ""} {emp.work_code ? `(${emp.work_code})` : ""}
-                        </div>
-                      </div>
-                      {isSelected && (
-                        <span style={{ fontSize: 10, fontWeight: 800, color: "#8B5CF6",
-                          background: C.white, padding: "2px 7px", borderRadius: 20,
-                          border: "1.5px solid #8B5CF640", flexShrink: 0 }}>추가근무</span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )
+                    );
+                  })}
+                </div>
+              );
+            })()
           )}
         </div>
 
@@ -1683,7 +1747,10 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
                           {d.label} {members.length}명
                         </span>
                         <span style={{ fontSize: 12, color: C.dark, lineHeight: 1.6 }}>
-                          {members.map(s => s.name || s.emp_no).join(", ")}
+                          {members.map(s => {
+                            const timeStr = (s.check_in && s.check_out) ? ` (${s.check_in}~${s.check_out})` : "";
+                            return (s.name || s.emp_no) + timeStr;
+                          }).join(", ")}
                         </span>
                       </div>
                     );
