@@ -1183,6 +1183,9 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
                   const t = extraTypes.find(x => x.id === patch.typeId);
                   next.typeName = t?.type_name || "";
                   next.payKind = t?.pay_kind || "";
+                  next.groupName = t?.group_name || "";
+                  next.includesMeal = t?.includes_meal || false;
+                  next.mealPerPerson = t?.meal_per_person || 0;
                   if (t?.pay_kind === "fixed") { next.start = null; next.end = null; next.minutes = t.fixed_min; next.amount = t.fixed_amount; }
                 }
                 if (next.payKind === "hourly" && next.start && next.end) {
@@ -1196,12 +1199,57 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
                 return { ...prev, [empNo]: next };
               });
             };
+
+            // 그룹별 유형 분류
+            const GRP_META = {
+              "키전달": { icon: "🔑", color: "#0EA5E9", bg: "#E0F2FE" },
+              "연장근무": { icon: "⏰", color: "#8B5CF6", bg: "#EDE9FE" },
+              "연장근무(행사)": { icon: "🎪", color: "#D97706", bg: "#FEF3C7" },
+            };
+            const grouped = {};
+            extraTypes.forEach(t => {
+              const g = t.group_name || "기타";
+              if (!grouped[g]) grouped[g] = [];
+              grouped[g].push(t);
+            });
+            const groupKeys = Object.keys(grouped).sort((a, b) => {
+              const order = ["키전달", "연장근무", "연장근무(행사)", "기타"];
+              return (order.indexOf(a) === -1 ? 99 : order.indexOf(a)) - (order.indexOf(b) === -1 ? 99 : order.indexOf(b));
+            });
+
+            // 행사 자동감지: 연장근무(행사) 유형을 선택한 인원 카운트
+            const eventTypeIds = extraTypes.filter(t => t.group_name === "연장근무(행사)").map(t => t.id);
+            const eventCount = Object.values(extraWork).filter(ex => ex?.typeId && eventTypeIds.includes(ex.typeId)).length;
+            const eventMinParticipants = extraTypes.find(t => t.group_name === "연장근무(행사)")?.min_participants || 3;
+            const isEventTriggered = eventCount >= eventMinParticipants;
+
             return (
               <div style={{ marginTop: 14, borderTop: `2px solid #E8E0FF`, paddingTop: 14 }}>
                 <div style={{ fontSize: 12, fontWeight: 800, color: "#6D28D9", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
                   <span style={{ background: "#EDE9FE", borderRadius: 8, padding: "2px 8px" }}>💰 추가수당 입력</span>
                   <span style={{ fontSize: 10, color: "#A78BFA", fontWeight: 600 }}>해당 직원만 선택</span>
                 </div>
+
+                {/* 행사 자동감지 배너 */}
+                {eventTypeIds.length > 0 && eventCount >= 2 && (
+                  <div style={{
+                    background: isEventTriggered ? "#FEF3C7" : "#FFF7ED", border: `1.5px solid ${isEventTriggered ? "#F59E0B" : "#FED7AA"}`,
+                    borderRadius: 10, padding: "10px 12px", marginBottom: 10,
+                  }}>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: isEventTriggered ? "#D97706" : "#EA580C" }}>
+                      {isEventTriggered ? `🎪 행사 감지! (${eventCount}명 선택)` : `⚠️ 연장근무(행사) ${eventCount}명 — ${eventMinParticipants}명 이상 시 행사 적용`}
+                    </div>
+                    {isEventTriggered && (() => {
+                      const eventType = extraTypes.find(t => t.group_name === "연장근무(행사)" && t.includes_meal);
+                      return eventType ? (
+                        <div style={{ fontSize: 11, color: "#92400E", marginTop: 4 }}>
+                          🍱 식대 {(eventType.meal_per_person || 0).toLocaleString("ko-KR")}원/인 × {eventCount}명 = <b>{((eventType.meal_per_person || 0) * eventCount).toLocaleString("ko-KR")}원</b>
+                        </div>
+                      ) : null;
+                    })()}
+                  </div>
+                )}
+
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {siteStaff.map(s => {
                     const ex = extraWork[s.emp_no] || {};
@@ -1216,7 +1264,7 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
                             <button onClick={() => setExtraWork(p => { const n = { ...p }; delete n[s.emp_no]; return n; })} style={{ fontSize: 10, padding: "3px 8px", borderRadius: 6, border: `1px solid ${C.border}`, background: "#fff", color: C.gray, cursor: "pointer", fontFamily: FONT }}>초기화</button>
                           )}
                         </div>
-                        {/* 유형 선택 (라디오) */}
+                        {/* 유형 선택 — 그룹 아코디언 */}
                         <div style={{ padding: "8px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
                           {/* 없음 옵션 */}
                           <button onClick={() => setExtraWork(p => { const n = { ...p }; delete n[s.emp_no]; return n; })} style={{
@@ -1228,40 +1276,60 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
                             </div>
                             <span style={{ fontSize: 12, fontWeight: 600, color: !ex.typeId ? "#6D28D9" : C.gray }}>없음</span>
                           </button>
-                          {extraTypes.map(t => {
-                            const isSel = ex.typeId === t.id;
+                          {/* 그룹별 렌더링 */}
+                          {groupKeys.map(gKey => {
+                            const gTypes = grouped[gKey];
+                            const meta = GRP_META[gKey] || { icon: "📋", color: C.gray, bg: "#F5F5F5" };
+                            const hasSelection = gTypes.some(t => t.id === ex.typeId);
                             return (
-                              <div key={t.id} style={{ border: `1.5px solid ${isSel ? "#6D28D9" : C.border}`, borderRadius: 10, background: isSel ? "#F5F3FF" : "#fff", overflow: "hidden" }}>
-                                <button onClick={() => setEmpExtra(s.emp_no, { typeId: t.id })} style={{
-                                  display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 10px", width: "100%", border: "none", background: "transparent", cursor: "pointer", fontFamily: FONT, textAlign: "left",
-                                }}>
-                                  <div style={{ width: 14, height: 14, borderRadius: "50%", border: `2px solid ${isSel ? "#6D28D9" : C.border}`, background: isSel ? "#6D28D9" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>
-                                    {isSel && <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#fff" }} />}
-                                  </div>
-                                  <div style={{ flex: 1 }}>
-                                    <div style={{ fontSize: 12, fontWeight: 700, color: isSel ? "#4C1D95" : C.dark }}>{t.type_name}</div>
-                                    <div style={{ fontSize: 10, color: C.gray, marginTop: 1 }}>
-                                      {t.pay_kind === "fixed" ? `${t.fixed_min}분 고정 · ${(t.fixed_amount||0).toLocaleString("ko-KR")}원` : `30분 단위 · ${(t.hourly_rate||0).toLocaleString("ko-KR")}원/h`}
-                                      {t.meal_trigger && <span style={{ color: "#D97706" }}> · {t.meal_trigger}분 초과 시 식대+{(t.meal_amount||0).toLocaleString("ko-KR")}원</span>}
-                                    </div>
-                                  </div>
-                                </button>
-                                {/* 시급제: 시간 입력 */}
-                                {isSel && t.pay_kind === "hourly" && (
-                                  <div style={{ padding: "0 10px 10px", display: "flex", alignItems: "center", gap: 6 }}>
-                                    <span style={{ fontSize: 11, color: C.gray, flexShrink: 0 }}>시작</span>
-                                    <select value={ex.start || ""} onChange={e => setEmpExtra(s.emp_no, { start: e.target.value })} style={{ flex: 1, padding: "6px 8px", border: `1.5px solid #A78BFA`, borderRadius: 8, fontSize: 12, fontWeight: 600, fontFamily: FONT, background: "#fff", outline: "none" }}>
-                                      <option value="">선택</option>
-                                      {HALF_HOURS.map(h => <option key={h} value={h}>{h}</option>)}
-                                    </select>
-                                    <span style={{ fontSize: 11, color: C.gray }}>—</span>
-                                    <span style={{ fontSize: 11, color: C.gray, flexShrink: 0 }}>종료</span>
-                                    <select value={ex.end || ""} onChange={e => setEmpExtra(s.emp_no, { end: e.target.value })} style={{ flex: 1, padding: "6px 8px", border: `1.5px solid #A78BFA`, borderRadius: 8, fontSize: 12, fontWeight: 600, fontFamily: FONT, background: "#fff", outline: "none" }}>
-                                      <option value="">선택</option>
-                                      {HALF_HOURS.map(h => <option key={h} value={h}>{h}</option>)}
-                                    </select>
-                                  </div>
-                                )}
+                              <div key={gKey} style={{ border: `1px solid ${hasSelection ? meta.color + "60" : C.border}`, borderRadius: 10, overflow: "hidden" }}>
+                                {/* 그룹 헤더 */}
+                                <div style={{ background: meta.bg, padding: "6px 10px", display: "flex", alignItems: "center", gap: 6 }}>
+                                  <span style={{ fontSize: 11 }}>{meta.icon}</span>
+                                  <span style={{ fontSize: 11, fontWeight: 800, color: meta.color, flex: 1 }}>{gKey}</span>
+                                  <span style={{ fontSize: 10, color: meta.color + "99" }}>{gTypes.length}개</span>
+                                </div>
+                                {/* 그룹 내 유형 */}
+                                <div style={{ display: "flex", flexDirection: "column" }}>
+                                  {gTypes.map((t, ti) => {
+                                    const isSel = ex.typeId === t.id;
+                                    return (
+                                      <div key={t.id} style={{ borderTop: ti > 0 ? `1px solid ${C.border}40` : "none", background: isSel ? "#F5F3FF" : "#fff" }}>
+                                        <button onClick={() => setEmpExtra(s.emp_no, { typeId: t.id })} style={{
+                                          display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 10px", width: "100%", border: "none", background: "transparent", cursor: "pointer", fontFamily: FONT, textAlign: "left",
+                                        }}>
+                                          <div style={{ width: 14, height: 14, borderRadius: "50%", border: `2px solid ${isSel ? meta.color : C.border}`, background: isSel ? meta.color : "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>
+                                            {isSel && <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#fff" }} />}
+                                          </div>
+                                          <div style={{ flex: 1 }}>
+                                            <div style={{ fontSize: 12, fontWeight: 700, color: isSel ? meta.color : C.dark }}>{t.type_name}</div>
+                                            <div style={{ fontSize: 10, color: C.gray, marginTop: 1 }}>
+                                              {t.pay_kind === "fixed" ? `${t.fixed_min}분 고정 · ${(t.fixed_amount||0).toLocaleString("ko-KR")}원` : `30분 단위 · ${(t.hourly_rate||0).toLocaleString("ko-KR")}원/h`}
+                                              {t.meal_trigger && <span style={{ color: "#D97706" }}> · {t.meal_trigger}분 초과 시 식대+{(t.meal_amount||0).toLocaleString("ko-KR")}원</span>}
+                                              {t.includes_meal && <span style={{ color: "#D97706" }}> · 🍱식대 {(t.meal_per_person||0).toLocaleString("ko-KR")}원/인</span>}
+                                            </div>
+                                          </div>
+                                        </button>
+                                        {/* 시급제: 시간 입력 */}
+                                        {isSel && t.pay_kind === "hourly" && (
+                                          <div style={{ padding: "0 10px 10px", display: "flex", alignItems: "center", gap: 6 }}>
+                                            <span style={{ fontSize: 11, color: C.gray, flexShrink: 0 }}>시작</span>
+                                            <select value={ex.start || ""} onChange={e => setEmpExtra(s.emp_no, { start: e.target.value })} style={{ flex: 1, padding: "6px 8px", border: `1.5px solid ${meta.color}80`, borderRadius: 8, fontSize: 12, fontWeight: 600, fontFamily: FONT, background: "#fff", outline: "none" }}>
+                                              <option value="">선택</option>
+                                              {HALF_HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+                                            </select>
+                                            <span style={{ fontSize: 11, color: C.gray }}>—</span>
+                                            <span style={{ fontSize: 11, color: C.gray, flexShrink: 0 }}>종료</span>
+                                            <select value={ex.end || ""} onChange={e => setEmpExtra(s.emp_no, { end: e.target.value })} style={{ flex: 1, padding: "6px 8px", border: `1.5px solid ${meta.color}80`, borderRadius: 8, fontSize: 12, fontWeight: 600, fontFamily: FONT, background: "#fff", outline: "none" }}>
+                                              <option value="">선택</option>
+                                              {HALF_HOURS.map(h => <option key={h} value={h}>{h}</option>)}
+                                            </select>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
                               </div>
                             );
                           })}
@@ -1274,6 +1342,7 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
                               <span style={{ fontSize: 13, fontWeight: 800, color: ex.amount > 0 ? "#F5B731" : "rgba(255,255,255,0.4)" }}>
                                 {ex.amount > 0 ? `+${ex.amount.toLocaleString("ko-KR")}원` : "-"}
                                 {selType?.meal_trigger && ex.minutes > selType.meal_trigger && <span style={{ fontSize: 10, color: "#86EFAC", marginLeft: 4 }}>🍱포함</span>}
+                                {selType?.includes_meal && <span style={{ fontSize: 10, color: "#86EFAC", marginLeft: 4 }}>🍱식대</span>}
                               </span>
                             </div>
                           )}
@@ -1787,6 +1856,22 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
                     <span style={{ fontSize: 13, fontWeight: 700, color: "#6D28D9" }}>합계</span>
                     <span style={{ fontSize: 15, fontWeight: 900, color: "#6D28D9", fontFamily: "monospace" }}>+{totalExtra.toLocaleString("ko-KR")}원</span>
                   </div>
+                  {/* 행사 식대 표시 */}
+                  {(() => {
+                    const eventTypeIds = extraTypes.filter(t => t.group_name === "연장근무(행사)").map(t => t.id);
+                    const eventCount = extraEntries.filter(([, ex]) => eventTypeIds.includes(ex.typeId)).length;
+                    const eventType = extraTypes.find(t => t.group_name === "연장근무(행사)" && t.includes_meal);
+                    const minP = extraTypes.find(t => t.group_name === "연장근무(행사)")?.min_participants || 3;
+                    if (eventType && eventCount >= minP) {
+                      const mealTotal = (eventType.meal_per_person || 0) * eventCount;
+                      return (
+                        <div style={{ marginTop: 6, padding: "6px 8px", background: "#FEF3C7", borderRadius: 8, fontSize: 11, color: "#92400E", fontWeight: 700 }}>
+                          🎪 행사 식대: {(eventType.meal_per_person||0).toLocaleString("ko-KR")}원/인 × {eventCount}명 = {mealTotal.toLocaleString("ko-KR")}원
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
               );
             })()}
