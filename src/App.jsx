@@ -1793,11 +1793,12 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
 }
 
 // ─── 홈 화면 ──────────────────────────────────────────────────────────────
-function HomePage({ employee, rawEmployee, activeSite, onSiteChange, onLogout, onNavigate }) {
+function HomePage({ employee, rawEmployee, activeSite, onSiteChange, onChangeSite, onLogout, onNavigate }) {
   const today = getToday();
   const todayLabel = formatDateFull(today);
   const siteCode = employee?.site_code || "";
   const hasDualSite = !!(rawEmployee?.site_code_2);
+  const isAdmin = employee?.role === "admin" || employee?.role === "super_admin";
 
   const [todayReport, setTodayReport] = useState(null);
   const [todayPayments, setTodayPayments] = useState([]);
@@ -1869,8 +1870,15 @@ function HomePage({ employee, rawEmployee, activeSite, onSiteChange, onLogout, o
             <div>
               <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", marginBottom: 4 }}>🎫 미팍티켓 마감APP</div>
               <div style={{ fontSize: 20, fontWeight: 900 }}>{employee?.name || "크루"}님, 안녕하세요!</div>
-              <div style={{ fontSize: 13, color: "rgba(255,255,255,0.65)", marginTop: 4 }}>
-                {getSiteName(siteCode)} · {todayLabel}
+              <div style={{ fontSize: 13, color: "rgba(255,255,255,0.65)", marginTop: 4, display: "flex", alignItems: "center", gap: 8 }}>
+                <span>{getSiteName(siteCode)} · {todayLabel}</span>
+                {isAdmin && onChangeSite && (
+                  <button onClick={onChangeSite} style={{
+                    background: "rgba(255,255,255,0.15)", border: "none", borderRadius: 6,
+                    color: C.gold, padding: "3px 8px", fontSize: 11, fontWeight: 800,
+                    fontFamily: FONT, cursor: "pointer",
+                  }}>변경</button>
+                )}
               </div>
             </div>
             <button onClick={onLogout} style={{
@@ -2607,8 +2615,14 @@ export default function App() {
       if (!profErr && prof && (prof.role === "crew" || prof.role === "admin" || prof.role === "super_admin")) {
         const emp = { name: prof.name, emp_no: prof.emp_no, emp_id: prof.emp_no, site_code: prof.site_code, role: prof.role };
         setEmployee(emp);
-        setActiveSite(emp.site_code);
-        setAuthState("home");
+        // 어드민/슈퍼어드민에 사업장 미지정 → 사업장 선택 화면
+        const isAdmin = prof.role === "admin" || prof.role === "super_admin";
+        if (isAdmin && !prof.site_code) {
+          setAuthState("select_site");
+        } else {
+          setActiveSite(emp.site_code);
+          setAuthState("home");
+        }
         return;
       }
       throw new Error("직원 정보를 찾을 수 없습니다.");
@@ -2621,8 +2635,13 @@ export default function App() {
 
   function handleLogin({ session, employee: emp }) {
     setEmployee(emp);
-    setActiveSite(getDefaultSite(emp));
-    setAuthState("home");
+    const isAdmin = emp.role === "admin" || emp.role === "super_admin";
+    if (isAdmin && !emp.site_code) {
+      setAuthState("select_site");
+    } else {
+      setActiveSite(getDefaultSite(emp));
+      setAuthState("home");
+    }
     setPage("home");
   }
 
@@ -2637,6 +2656,13 @@ export default function App() {
   function handleNavigate(target, data = null) {
     setPage(target);
     setPageData(data);
+  }
+
+  function handleSiteSelect(siteCode) {
+    setActiveSite(siteCode);
+    setEmployee(prev => prev ? { ...prev, site_code: siteCode } : prev);
+    setAuthState("home");
+    setPage("home");
   }
 
   function handleReportSaved() {
@@ -2680,6 +2706,42 @@ export default function App() {
 
   if (authState === "login") return <LoginPage onLogin={handleLogin} />;
 
+  if (authState === "select_site") {
+    const allSites = Object.entries(_siteNamesCache).filter(([k]) => k !== "V000").sort((a, b) => a[0].localeCompare(b[0]));
+    return (
+      <div style={{ minHeight: "100vh", background: C.lightGray, fontFamily: FONT }}>
+        <div style={{ background: C.navy, color: C.white, padding: "env(safe-area-inset-top, 0) 0 0" }}>
+          <div style={{ padding: "20px 20px 24px" }}>
+            <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", marginBottom: 4 }}>🎫 미팍티켓 마감APP</div>
+            <div style={{ fontSize: 20, fontWeight: 900 }}>{employee?.name || "관리자"}님, 안녕하세요!</div>
+            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.65)", marginTop: 6 }}>일보를 작성할 사업장을 선택해주세요</div>
+          </div>
+        </div>
+        <div style={{ padding: "16px 16px 100px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {allSites.map(([code, name]) => (
+              <button key={code} onClick={() => handleSiteSelect(code)} style={{
+                display: "flex", alignItems: "center", gap: 12, padding: "16px 18px",
+                background: C.white, border: `1.5px solid ${C.border}`, borderRadius: 14,
+                fontSize: 15, fontWeight: 700, fontFamily: FONT, cursor: "pointer",
+                textAlign: "left", transition: "all 0.15s",
+              }}>
+                <span style={{ color: C.navy, fontSize: 12, fontWeight: 800, background: "#EEF0FF", padding: "4px 10px", borderRadius: 8 }}>{code}</span>
+                <span style={{ color: C.dark }}>{name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, padding: "12px 16px", paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))", background: C.white, borderTop: `1px solid ${C.border}` }}>
+          <button onClick={handleLogout} style={{
+            width: "100%", padding: "14px 0", borderRadius: 12, border: "none",
+            background: "#f5f5f5", color: C.gray, fontSize: 14, fontWeight: 700, fontFamily: FONT, cursor: "pointer",
+          }}>로그아웃</button>
+        </div>
+      </div>
+    );
+  }
+
   // activeSite로 site_code를 오버라이드한 employee 객체
   const activeEmployee = employee ? { ...employee, site_code: activeSite || employee.site_code } : employee;
 
@@ -2697,7 +2759,7 @@ export default function App() {
       ) : page === "payslip" ? (
         <PayslipPage employee={employee} onBack={() => setPage("home")} />
       ) : (
-        <HomePage employee={activeEmployee} rawEmployee={employee} activeSite={activeSite} onSiteChange={setActiveSite} onLogout={handleLogout} onNavigate={handleNavigate} />
+        <HomePage employee={activeEmployee} rawEmployee={employee} activeSite={activeSite} onSiteChange={setActiveSite} onChangeSite={() => setAuthState("select_site")} onLogout={handleLogout} onNavigate={handleNavigate} />
       )}
 
       {/* ── 하단 탭 바 ── */}
