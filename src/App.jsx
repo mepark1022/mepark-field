@@ -1777,10 +1777,11 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
 }
 
 // ─── 홈 화면 ──────────────────────────────────────────────────────────────
-function HomePage({ employee, onLogout, onNavigate }) {
+function HomePage({ employee, rawEmployee, activeSite, onSiteChange, onLogout, onNavigate }) {
   const today = getToday();
   const todayLabel = formatDateFull(today);
   const siteCode = employee?.site_code || "";
+  const hasDualSite = !!(rawEmployee?.site_code_2);
 
   const [todayReport, setTodayReport] = useState(null);
   const [todayPayments, setTodayPayments] = useState([]);
@@ -1862,6 +1863,22 @@ function HomePage({ employee, onLogout, onNavigate }) {
               fontSize: 13, fontWeight: 600, fontFamily: FONT,
             }}>로그아웃</button>
           </div>
+          {/* 복합근무자 사업장 전환 탭 */}
+          {hasDualSite && (
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              {[rawEmployee.site_code_1 || rawEmployee.site_code, rawEmployee.site_code_2].filter(Boolean).map(sc => (
+                <button key={sc} onClick={() => onSiteChange(sc)} style={{
+                  flex: 1, padding: "10px 0", borderRadius: 10, border: "none", fontFamily: FONT,
+                  fontSize: 13, fontWeight: 800, cursor: "pointer", transition: "all 0.2s",
+                  background: activeSite === sc ? C.gold : "rgba(255,255,255,0.12)",
+                  color: activeSite === sc ? C.navy : "rgba(255,255,255,0.7)",
+                }}>
+                  {getSiteName(sc)}
+                  {activeSite === sc && <span style={{ fontSize: 10, marginLeft: 4 }}>✓</span>}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -2503,10 +2520,19 @@ function FieldBugReportFAB({ currentPage, employee }) {
 export default function App() {
   const [authState, setAuthState] = useState("loading");
   const [employee, setEmployee] = useState(null);
+  const [activeSite, setActiveSite] = useState(null); // 복합근무자 사업장 선택
   const [page, setPage] = useState("home");
   const [pageData, setPageData] = useState(null);
   const [toast, setToast] = useState(null);
   const [unreadPayslips, setUnreadPayslips] = useState(0);
+
+  // 복합근무자: 요일 기반 사업장 자동 선택
+  function getDefaultSite(emp) {
+    if (!emp) return null;
+    if (!emp.site_code_2) return emp.site_code_1 || emp.site_code;
+    const day = new Date().getDay(); // 0=일, 6=토
+    return (day === 0 || day === 6) ? emp.site_code_2 : (emp.site_code_1 || emp.site_code);
+  }
 
   // 사업장명 DB 로드 (site_details.site_name 컬럼 — 없으면 기본값 유지)
   useEffect(() => {
@@ -2545,11 +2571,13 @@ export default function App() {
       // ① employees 테이블 시도 (기존 field_member)
       const { data, error } = await supabase
         .from("employees")
-        .select("id, name, emp_no, site_code_1, work_type, status")
+        .select("id, name, emp_no, site_code_1, site_code_2, work_code, work_type, status")
         .eq("auth_user_id", authUserId)
         .single();
       if (!error && data) {
-        setEmployee({ ...data, emp_id: data.emp_no, site_code: data.site_code_1 });
+        const emp = { ...data, emp_id: data.emp_no, site_code: data.site_code_1 };
+        setEmployee(emp);
+        setActiveSite(getDefaultSite(emp));
         setAuthState("home");
         return;
       }
@@ -2560,7 +2588,9 @@ export default function App() {
         .eq("id", authUserId)
         .single();
       if (!profErr && prof && (prof.role === "crew" || prof.role === "admin" || prof.role === "super_admin")) {
-        setEmployee({ name: prof.name, emp_no: prof.emp_no, emp_id: prof.emp_no, site_code: prof.site_code, role: prof.role });
+        const emp = { name: prof.name, emp_no: prof.emp_no, emp_id: prof.emp_no, site_code: prof.site_code, role: prof.role };
+        setEmployee(emp);
+        setActiveSite(emp.site_code);
         setAuthState("home");
         return;
       }
@@ -2574,6 +2604,7 @@ export default function App() {
 
   function handleLogin({ session, employee: emp }) {
     setEmployee(emp);
+    setActiveSite(getDefaultSite(emp));
     setAuthState("home");
     setPage("home");
   }
@@ -2632,12 +2663,15 @@ export default function App() {
 
   if (authState === "login") return <LoginPage onLogin={handleLogin} />;
 
+  // activeSite로 site_code를 오버라이드한 employee 객체
+  const activeEmployee = employee ? { ...employee, site_code: activeSite || employee.site_code } : employee;
+
   return (
     <div style={{ fontFamily: FONT }}>
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       {page === "form" ? (
         <ReportFormPage
-          employee={employee}
+          employee={activeEmployee}
           editReport={pageData?.report || null}
           editPayments={pageData?.payments || []}
           onSave={handleReportSaved}
@@ -2646,7 +2680,7 @@ export default function App() {
       ) : page === "payslip" ? (
         <PayslipPage employee={employee} onBack={() => setPage("home")} />
       ) : (
-        <HomePage employee={employee} onLogout={handleLogout} onNavigate={handleNavigate} />
+        <HomePage employee={activeEmployee} rawEmployee={employee} activeSite={activeSite} onSiteChange={setActiveSite} onLogout={handleLogout} onNavigate={handleNavigate} />
       )}
 
       {/* ── 하단 탭 바 ── */}
