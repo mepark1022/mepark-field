@@ -26,10 +26,17 @@ const FONT = "'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif";
 
 const DUTY_TYPES = [
   { key: "site",    label: "해당매장",  color: "#1428A0", bg: "#eef0ff" },
-  { key: "hq",      label: "본사지원",  color: "#E97132", bg: "#fff4ec" },
+  { key: "peak",    label: "피크타임",  color: "#E97132", bg: "#fff4ec" },
+  { key: "hq",      label: "본사지원",  color: "#156082", bg: "#e8f4f8" },
   { key: "part",    label: "알바지원",  color: "#43A047", bg: "#edf7ee" },
   { key: "extra",   label: "비번투입",  color: "#8B5CF6", bg: "#f3f0ff" },
 ];
+
+// 피크타임 근무자 판별: 근무코드가 P로 끝나되, CPF/FPG(복합)는 제외
+const isPeakWorker = (workCode) => {
+  if (!workCode) return false;
+  return /P$/i.test(workCode) && !/^(CPF|FPG)$/i.test(workCode);
+};
 
 const PAYMENT_TYPES = [
   { key: "cash",        label: "현금",     icon: "💵" },
@@ -1085,13 +1092,14 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
           </div>
 
           {/* ── 해당매장 탭 ── */}
-          {dutyTab === "site" && (
-            loadingStaff ? (
+          {dutyTab === "site" && (() => {
+            const regularStaff = siteEmployees.filter(e => !isPeakWorker(e.work_code));
+            return loadingStaff ? (
               <div style={{ textAlign: "center", padding: "16px 0" }}>
                 <Spinner size={24} color={C.navy} />
                 <div style={{ fontSize: 12, color: C.gray, marginTop: 8 }}>로딩 중...</div>
               </div>
-            ) : siteEmployees.length === 0 ? (
+            ) : regularStaff.length === 0 ? (
               <div style={{ textAlign: "center", padding: "16px 0", color: C.gray, fontSize: 13 }}>
                 등록된 직원이 없습니다.
               </div>
@@ -1099,15 +1107,15 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
               <>
                 <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
                   <button onClick={() => {
-                    const allSite = siteEmployees.map(e => ({ emp_no: e.emp_no, name: e.name, duty: "site", employee_id: e.id }));
+                    const allSite = regularStaff.map(e => ({ emp_no: e.emp_no, name: e.name, duty: "site", employee_id: e.id }));
                     setForm(f => {
                       const others = f.selectedStaff.filter(s => s.duty !== "site");
                       const next = [...others, ...allSite];
                       return { ...f, selectedStaff: next, staff_count: next.length };
                     });
                   }} style={{ flex: 1, padding: "8px", border: `1.5px solid ${C.navy}`, borderRadius: 10,
-                    background: form.selectedStaff.filter(s=>s.duty==="site").length === siteEmployees.length ? C.navy : C.white,
-                    color: form.selectedStaff.filter(s=>s.duty==="site").length === siteEmployees.length ? C.white : C.navy,
+                    background: form.selectedStaff.filter(s=>s.duty==="site").length === regularStaff.length && regularStaff.length > 0 ? C.navy : C.white,
+                    color: form.selectedStaff.filter(s=>s.duty==="site").length === regularStaff.length && regularStaff.length > 0 ? C.white : C.navy,
                     fontSize: 12, fontWeight: 700, fontFamily: FONT }}>
                     ✅ 전체 선택
                   </button>
@@ -1120,7 +1128,7 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
                   </button>
                 </div>
                 <div style={{ display: "grid", gap: 6, maxHeight: 280, overflowY: "auto" }}>
-                  {siteEmployees.map(emp => {
+                  {regularStaff.map(emp => {
                     const isSelected = form.selectedStaff.some(s => s.emp_no === emp.emp_no && s.duty === "site");
                     return (
                       <button key={emp.emp_no} onClick={() => {
@@ -1155,8 +1163,8 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
                   })}
                 </div>
               </>
-            )
-          )}
+            );
+          })()}
 
           {/* ── 추가근무 입력 섹션 (site 탭 + extraEnabled + site 직원 선택됨) ── */}
           {dutyTab === "site" && extraEnabled && extraTypes.length > 0 && form.selectedStaff.filter(s => s.duty === "site").length > 0 && (() => {
@@ -1352,6 +1360,88 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
                   })}
                 </div>
               </div>
+            );
+          })()}
+
+          {/* ── 피크타임 탭 ── */}
+          {dutyTab === "peak" && (() => {
+            const peakStaff = siteEmployees.filter(e => isPeakWorker(e.work_code));
+            const PEAK = DUTY_TYPES.find(d => d.key === "peak");
+            return loadingStaff ? (
+              <div style={{ textAlign: "center", padding: "16px 0" }}>
+                <Spinner size={24} color={PEAK.color} />
+                <div style={{ fontSize: 12, color: C.gray, marginTop: 8 }}>로딩 중...</div>
+              </div>
+            ) : peakStaff.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "16px 0", color: C.gray, fontSize: 13 }}>
+                피크타임 근무자가 없습니다.
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>
+                  근무코드가 P로 끝나는 직원이 여기에 표시됩니다 (AP, BP, CP 등)
+                </div>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                  <button onClick={() => {
+                    const allPeak = peakStaff.map(e => ({ emp_no: e.emp_no, name: e.name, duty: "peak", employee_id: e.id }));
+                    setForm(f => {
+                      const others = f.selectedStaff.filter(s => s.duty !== "peak");
+                      const next = [...others, ...allPeak];
+                      return { ...f, selectedStaff: next, staff_count: next.length };
+                    });
+                  }} style={{ flex: 1, padding: "8px", border: `1.5px solid ${PEAK.color}`, borderRadius: 10,
+                    background: form.selectedStaff.filter(s=>s.duty==="peak").length === peakStaff.length && peakStaff.length > 0 ? PEAK.color : C.white,
+                    color: form.selectedStaff.filter(s=>s.duty==="peak").length === peakStaff.length && peakStaff.length > 0 ? C.white : PEAK.color,
+                    fontSize: 12, fontWeight: 700, fontFamily: FONT }}>
+                    ✅ 전체 선택
+                  </button>
+                  <button onClick={() => setForm(f => {
+                    const next = f.selectedStaff.filter(s => s.duty !== "peak");
+                    return { ...f, selectedStaff: next, staff_count: next.length };
+                  })} style={{ flex: 1, padding: "8px", border: `1.5px solid ${C.border}`, borderRadius: 10,
+                    background: C.white, color: C.gray, fontSize: 12, fontWeight: 700, fontFamily: FONT }}>
+                    ↩️ 초기화
+                  </button>
+                </div>
+                <div style={{ display: "grid", gap: 6, maxHeight: 280, overflowY: "auto" }}>
+                  {peakStaff.map(emp => {
+                    const isSelected = form.selectedStaff.some(s => s.emp_no === emp.emp_no && s.duty === "peak");
+                    return (
+                      <button key={emp.emp_no} onClick={() => {
+                        setForm(f => {
+                          const exists = f.selectedStaff.find(s => s.emp_no === emp.emp_no);
+                          const next = exists
+                            ? f.selectedStaff.filter(s => s.emp_no !== emp.emp_no)
+                            : [...f.selectedStaff, { emp_no: emp.emp_no, name: emp.name, duty: "peak", employee_id: emp.id }];
+                          return { ...f, selectedStaff: next, staff_count: next.length };
+                        });
+                      }} style={{
+                        display: "flex", alignItems: "center", gap: 10,
+                        padding: "10px 14px", borderRadius: 12,
+                        border: `1.5px solid ${isSelected ? PEAK.color + "60" : C.border}`,
+                        background: isSelected ? PEAK.bg : C.white,
+                        textAlign: "left", fontFamily: FONT, cursor: "pointer",
+                      }}>
+                        <div style={{ width: 22, height: 22, borderRadius: 6, flexShrink: 0,
+                          border: `2px solid ${isSelected ? PEAK.color : C.border}`,
+                          background: isSelected ? PEAK.color : C.white,
+                          display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          {isSelected && <span style={{ color: C.white, fontSize: 13, fontWeight: 900 }}>✓</span>}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: C.dark }}>{emp.name}</div>
+                          <div style={{ fontSize: 11, color: C.gray, marginTop: 1 }}>
+                            {emp.emp_no} · {emp.position || ""} {emp.work_code ? `(${emp.work_code})` : ""}
+                          </div>
+                        </div>
+                        <span style={{ fontSize: 9, fontWeight: 800, color: PEAK.color,
+                          background: C.white, padding: "2px 7px", borderRadius: 20,
+                          border: `1.5px solid ${PEAK.color}40`, flexShrink: 0 }}>피크</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
             );
           })()}
 
