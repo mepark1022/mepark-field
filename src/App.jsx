@@ -2054,11 +2054,13 @@ function HomePage({ employee, rawEmployee, activeSite, onSiteChange, onChangeSit
 
   const [todayReport, setTodayReport] = useState(null);
   const [todayPayments, setTodayPayments] = useState([]);
+  const [todayStaff, setTodayStaff] = useState([]);
   const [recentReports, setRecentReports] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [expandedId, setExpandedId] = useState(null);
   const [expandedPayments, setExpandedPayments] = useState([]);
+  const [expandedStaff, setExpandedStaff] = useState([]);
   const [expandedLoading, setExpandedLoading] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -2077,8 +2079,13 @@ function HomePage({ employee, rawEmployee, activeSite, onSiteChange, onChangeSit
           .from("daily_report_payment").select("*")
           .eq("report_id", todayData.id);
         setTodayPayments(payData || []);
+        const { data: staffData } = await supabase
+          .from("daily_report_staff").select("*")
+          .eq("report_id", todayData.id);
+        setTodayStaff(staffData || []);
       } else {
         setTodayPayments([]);
+        setTodayStaff([]);
       }
 
       // 최근 7일 (오늘 제외)
@@ -2107,12 +2114,15 @@ function HomePage({ employee, rawEmployee, activeSite, onSiteChange, onChangeSit
     if (expandedId === reportId) { setExpandedId(null); return; }
     setExpandedId(reportId);
     setExpandedPayments([]);
+    setExpandedStaff([]);
     setExpandedLoading(true);
     try {
-      const { data } = await supabase
-        .from("daily_report_payment").select("*")
-        .eq("report_id", reportId);
-      setExpandedPayments(data || []);
+      const [{ data: payData }, { data: staffData }] = await Promise.all([
+        supabase.from("daily_report_payment").select("*").eq("report_id", reportId),
+        supabase.from("daily_report_staff").select("*").eq("report_id", reportId),
+      ]);
+      setExpandedPayments(payData || []);
+      setExpandedStaff(staffData || []);
     } catch (_) {}
     setExpandedLoading(false);
   }
@@ -2210,6 +2220,23 @@ function HomePage({ employee, rawEmployee, activeSite, onSiteChange, onChangeSit
                       </div>
                     ))}
                   </div>
+
+                  {/* 근무유형별 인원 뱃지 */}
+                  {todayStaff.length > 0 && (() => {
+                    const typeCounts = {};
+                    todayStaff.forEach(s => { const t = s.staff_type || "site"; typeCounts[t] = (typeCounts[t] || 0) + 1; });
+                    const badges = DUTY_TYPES.filter(d => typeCounts[d.key]);
+                    return badges.length > 1 || typeCounts.peak ? (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
+                        {badges.map(d => (
+                          <span key={d.key} style={{ fontSize: 11, fontWeight: 800, color: d.color,
+                            background: d.bg, padding: "3px 10px", borderRadius: 20 }}>
+                            {d.label} {typeCounts[d.key]}명
+                          </span>
+                        ))}
+                      </div>
+                    ) : null;
+                  })()}
 
                   {todayPayments.length > 0 && (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
@@ -2331,6 +2358,23 @@ function HomePage({ employee, rawEmployee, activeSite, onSiteChange, onChangeSit
                               </div>
                             ) : (
                               <>
+                                {/* 근무유형별 인원 */}
+                                {expandedStaff.length > 0 && (() => {
+                                  const typeCounts = {};
+                                  expandedStaff.forEach(s => { const t = s.staff_type || "site"; typeCounts[t] = (typeCounts[t] || 0) + 1; });
+                                  const badges = DUTY_TYPES.filter(d => typeCounts[d.key]);
+                                  return badges.length > 1 || typeCounts.peak ? (
+                                    <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                      {badges.map(d => (
+                                        <span key={d.key} style={{ fontSize: 10, fontWeight: 800, color: d.color,
+                                          background: d.bg, padding: "3px 9px", borderRadius: 20 }}>
+                                          {d.label} {typeCounts[d.key]}명
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : null;
+                                })()}
+
                                 {/* 결제수단 */}
                                 {expandedPayments.length > 0 && (
                                   <div style={{ marginTop: 12 }}>
