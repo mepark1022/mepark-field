@@ -641,7 +641,7 @@ function LoginPage({ onLogin }) {
 }
 
 // ─── 일보 작성 폼 ────────────────────────────────────────────────────────
-function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) {
+function ReportFormPage({ employee, isSecondarySite, myEmployeeId, editReport, editPayments, onSave, onBack }) {
   const today = getToday();
   const siteCode = employee?.site_code || "V001";
   const isEdit = !!editReport;
@@ -710,7 +710,13 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
           .or(`site_code_1.eq.${siteCode},site_code_2.eq.${siteCode}`)
           .in("status", ["active", "재직"])
           .order("emp_no");
-        if (!error && data) setSiteEmployees(data);
+        if (!error && data) {
+          // 사업장2 접속 시 본인 제외 (지원근무로 별도 등록)
+          const filtered = isSecondarySite && myEmployeeId
+            ? data.filter(e => e.id !== myEmployeeId)
+            : data;
+          setSiteEmployees(filtered);
+        }
       } catch (e) {
         console.error("직원 목록 로드 실패:", e);
       } finally {
@@ -1051,6 +1057,16 @@ function ReportFormPage({ employee, editReport, editPayments, onSave, onBack }) 
         {/* 근무 현황 */}
         <div style={sectionStyle}>
           {sectionTitle("👥", "근무 현황")}
+
+          {/* 사업장2 접속 시 안내 */}
+          {isSecondarySite && (
+            <div style={{
+              padding: "10px 14px", background: "#FFF3E0", borderRadius: 10,
+              border: `1.5px solid ${C.orange}`, marginBottom: 12, fontSize: 12, color: C.dark, lineHeight: 1.5,
+            }}>
+              💡 타사업장 마감보고입니다. <strong>본인 근무</strong>는 홈 화면의 <strong style={{ color: C.orange }}>지원근무 등록</strong>에서 별도로 등록해주세요.
+            </div>
+          )}
 
           {/* 총 인원 표시 */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
@@ -3627,6 +3643,8 @@ export default function App() {
       {page === "form" ? (
         <ReportFormPage
           employee={activeEmployee}
+          isSecondarySite={!!(employee?.site_code_2 && activeSite === employee.site_code_2)}
+          myEmployeeId={employee?.id}
           editReport={pageData?.report || null}
           editPayments={pageData?.payments || []}
           onSave={handleReportSaved}
