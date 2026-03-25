@@ -21,23 +21,34 @@ export async function callAdminApi(payload) {
   const { data: { session } } = await supabase.auth.getSession();
   const token = session?.access_token || SUPABASE_ANON_KEY;
 
-  const res = await fetch(
-    `${SUPABASE_URL}/functions/v1/admin-api`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(payload),
-    }
-  );
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: "Unknown error" }));
-    throw new Error(err.error || `HTTP ${res.status}`);
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/functions/v1/admin-api`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      }
+    );
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Unknown error" }));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    return res.json();
+  } catch (e) {
+    clearTimeout(timeoutId);
+    if (e.name === "AbortError") throw new Error("서버 응답 시간 초과. 잠시 후 다시 시도하세요.");
+    throw e;
   }
-  return res.json();
 }
 
 // ─── 현장 PIN 로그인 ────────────────────────────────────────────────────
