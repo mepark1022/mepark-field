@@ -2500,15 +2500,22 @@ function SupportDutyPage({ employee, onBack, onToast }) {
   const myName = employee?.name || "";
   const mySite = employee?.site_code || "";
 
-  // 과거 7일 날짜 배열
-  const dateOptions = useMemo(() => {
-    const arr = [];
+  // 캘린더 월 네비게이션
+  const todayStr = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }, []);
+  const [calYear, setCalYear] = useState(() => new Date().getFullYear());
+  const [calMonth, setCalMonth] = useState(() => new Date().getMonth()); // 0-indexed
+
+  // 선택 가능 범위: 오늘 ~ 7일 전
+  const selectableRange = useMemo(() => {
+    const set = new Set();
     for (let i = 0; i < 7; i++) {
       const d = new Date(); d.setDate(d.getDate() - i);
-      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      arr.push(dateStr);
+      set.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
     }
-    return arr;
+    return set;
   }, []);
 
   // 사업장 목록 (본소속 제외)
@@ -2518,7 +2525,10 @@ function SupportDutyPage({ employee, onBack, onToast }) {
       .sort((a, b) => a[0].localeCompare(b[0]));
   }, [mySite]);
 
-  const [selDate, setSelDate] = useState(dateOptions[0]);
+  const [selDate, setSelDate] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  });
   const [selSite, setSelSite] = useState("");
   const [checkIn, setCheckIn] = useState("");
   const [checkOut, setCheckOut] = useState("");
@@ -2609,11 +2619,28 @@ function SupportDutyPage({ employee, onBack, onToast }) {
     } catch (e) { onToast?.("❌ 삭제 실패"); }
   }
 
-  const dayLabel = (ds) => {
-    const d = new Date(ds + "T00:00:00");
+  const calGrid = useMemo(() => {
+    const firstDay = new Date(calYear, calMonth, 1).getDay(); // 0=일
+    const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+    const cells = [];
+    for (let i = 0; i < firstDay; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) {
+      const ds = `${calYear}-${String(calMonth + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      cells.push({ day: d, dateStr: ds, selectable: selectableRange.has(ds), isToday: ds === todayStr });
+    }
+    return cells;
+  }, [calYear, calMonth, selectableRange, todayStr]);
+
+  const canGoNext = !(calYear === new Date().getFullYear() && calMonth === new Date().getMonth());
+  const handleCalPrev = () => { if (calMonth === 0) { setCalYear(y => y - 1); setCalMonth(11); } else setCalMonth(m => m - 1); };
+  const handleCalNext = () => { if (!canGoNext) return; if (calMonth === 11) { setCalYear(y => y + 1); setCalMonth(0); } else setCalMonth(m => m + 1); };
+
+  const selDateLabel = (() => {
+    if (!selDate) return "";
+    const d = new Date(selDate + "T00:00:00");
     const wd = ["일", "월", "화", "수", "목", "금", "토"][d.getDay()];
-    return `${d.getMonth() + 1}/${d.getDate()}(${wd})`;
-  };
+    return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 (${wd})`;
+  })();
 
   return (
     <div style={{ minHeight: "100vh", background: C.lightGray, fontFamily: FONT }}>
@@ -2631,21 +2658,50 @@ function SupportDutyPage({ employee, onBack, onToast }) {
       </div>
 
       <div style={{ padding: "16px", maxWidth: 500, margin: "0 auto" }}>
-        {/* 날짜 선택 */}
+        {/* 날짜 선택 — 미팍 캘린더 */}
         <div style={{ background: C.white, borderRadius: 16, padding: 16, marginBottom: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
           <div style={{ fontSize: 14, fontWeight: 800, color: C.dark, marginBottom: 10 }}>📅 근무일 선택</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {dateOptions.map(ds => (
-              <button key={ds} onClick={() => setSelDate(ds)} style={{
-                padding: "8px 12px", borderRadius: 10, fontSize: 13, fontWeight: selDate === ds ? 800 : 600,
-                border: selDate === ds ? `2px solid ${C.navy}` : `1.5px solid ${C.border}`,
-                background: selDate === ds ? C.navy : C.white,
-                color: selDate === ds ? C.white : C.dark, fontFamily: FONT,
-              }}>
-                {dayLabel(ds)}
-                {ds === dateOptions[0] && <span style={{ fontSize: 10, marginLeft: 2 }}>오늘</span>}
-              </button>
-            ))}
+          <div style={{ border: `1.5px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
+            {/* 월 헤더 */}
+            <div style={{
+              background: C.navy, color: C.white, padding: "10px 14px",
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+            }}>
+              <button onClick={handleCalPrev} style={{ background: "none", border: "none", color: C.white, fontSize: 18, padding: "4px 10px", cursor: "pointer", opacity: 0.8 }}>‹</button>
+              <div style={{ fontSize: 14, fontWeight: 800 }}>{calYear}년 {calMonth + 1}월</div>
+              <button onClick={handleCalNext} style={{ background: "none", border: "none", color: canGoNext ? C.white : "rgba(255,255,255,0.3)", fontSize: 18, padding: "4px 10px", cursor: canGoNext ? "pointer" : "default" }}>›</button>
+            </div>
+            {/* 요일 헤더 */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", background: C.lightGray, borderBottom: `1px solid ${C.border}` }}>
+              {["일","월","화","수","목","금","토"].map((wd, i) => (
+                <div key={wd} style={{ textAlign: "center", padding: "6px 0", fontSize: 11, fontWeight: 700, color: i === 0 ? C.red : i === 6 ? "#0F9ED5" : C.gray }}>{wd}</div>
+              ))}
+            </div>
+            {/* 날짜 그리드 */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", padding: "4px 2px 6px" }}>
+              {calGrid.map((cell, i) => {
+                if (!cell) return <div key={`e${i}`} />;
+                const isSel = cell.dateStr === selDate;
+                const dow = (i % 7); // 0=일,6=토
+                return (
+                  <button key={cell.dateStr} onClick={() => cell.selectable && setSelDate(cell.dateStr)} style={{
+                    background: isSel ? C.navy : "transparent", color: isSel ? C.white : cell.selectable ? (dow === 0 ? C.red : dow === 6 ? "#0F9ED5" : C.dark) : "#ddd",
+                    border: "none", borderRadius: 8, padding: "8px 0", fontSize: 12, fontWeight: isSel || cell.isToday ? 800 : 400,
+                    cursor: cell.selectable ? "pointer" : "default", fontFamily: FONT, position: "relative",
+                    textAlign: "center",
+                  }}>
+                    {cell.day}
+                    {cell.isToday && !isSel && <div style={{ width: 4, height: 4, borderRadius: "50%", background: C.gold, margin: "2px auto 0" }} />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          {/* 선택된 날짜 표시 */}
+          <div style={{ marginTop: 10, padding: "8px 12px", background: "#eef0ff", borderRadius: 10, display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: 12, color: C.gray }}>선택:</span>
+            <span style={{ fontSize: 13, fontWeight: 800, color: C.navy }}>{selDateLabel}</span>
+            {selDate === todayStr && <span style={{ fontSize: 10, color: C.gold, fontWeight: 700, marginLeft: 4 }}>오늘</span>}
           </div>
         </div>
 
