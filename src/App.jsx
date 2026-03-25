@@ -2313,16 +2313,25 @@ function HomePage({ employee, rawEmployee, activeSite, onSiteChange, onChangeSit
               )}
             </div>
 
-            {/* 지원근무 등록 버튼 */}
+            {/* 지원근무 등록 버튼 — 시안A 컴팩트 카드형 */}
             <button onClick={() => onNavigate("support")} style={{
-              width: "100%", padding: "14px 20px", marginBottom: 12,
-              background: "#FFF8F0", border: `2px solid ${C.orange}`, borderRadius: 16,
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+              width: "100%", padding: "12px 14px", marginBottom: 12,
+              background: C.lightGray, border: `1.5px solid ${C.orange}`, borderRadius: 14,
+              display: "flex", alignItems: "center", justifyContent: "space-between",
               fontFamily: FONT, cursor: "pointer",
             }}>
-              <span style={{ fontSize: 18 }}>🔄</span>
-              <span style={{ fontSize: 15, fontWeight: 800, color: C.orange }}>타사업장 지원근무 등록</span>
-              <span style={{ fontSize: 13, color: C.gray }}>→</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{
+                  width: 34, height: 34, borderRadius: 9, background: "#FFF3E0",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 16, flexShrink: 0,
+                }}>🔄</div>
+                <div style={{ textAlign: "left" }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: C.dark }}>타사업장 지원근무</div>
+                  <div style={{ fontSize: 10, color: C.gray, marginTop: 1 }}>다른 매장 근무 이력을 등록하세요</div>
+                </div>
+              </div>
+              <span style={{ fontSize: 16, color: "#ccc" }}>›</span>
             </button>
 
             {/* 최근 일보 이력 */}
