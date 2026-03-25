@@ -27,6 +27,7 @@ const FONT = "'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif";
 const DUTY_TYPES = [
   { key: "site",    label: "해당매장",  color: "#1428A0", bg: "#eef0ff" },
   { key: "peak",    label: "피크타임",  color: "#E97132", bg: "#fff4ec" },
+  { key: "support", label: "지원근무",  color: "#E97132", bg: "#FFF3E0" },
   { key: "hq",      label: "본사지원",  color: "#156082", bg: "#e8f4f8" },
   { key: "part",    label: "알바지원",  color: "#43A047", bg: "#edf7ee" },
   { key: "extra",   label: "비번투입",  color: "#8B5CF6", bg: "#f3f0ff" },
@@ -2312,6 +2313,18 @@ function HomePage({ employee, rawEmployee, activeSite, onSiteChange, onChangeSit
               )}
             </div>
 
+            {/* 지원근무 등록 버튼 */}
+            <button onClick={() => onNavigate("support")} style={{
+              width: "100%", padding: "14px 20px", marginBottom: 12,
+              background: "#FFF8F0", border: `2px solid ${C.orange}`, borderRadius: 16,
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+              fontFamily: FONT, cursor: "pointer",
+            }}>
+              <span style={{ fontSize: 18 }}>🔄</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: C.orange }}>타사업장 지원근무 등록</span>
+              <span style={{ fontSize: 13, color: C.gray }}>→</span>
+            </button>
+
             {/* 최근 일보 이력 */}
             <div style={{
               background: C.white, borderRadius: 24, padding: "20px", marginBottom: 16,
@@ -2466,6 +2479,266 @@ function HomePage({ employee, rawEmployee, activeSite, onSiteChange, onChangeSit
             </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── 지원근무 등록 페이지 ──────────────────────────────────────────────────
+function SupportDutyPage({ employee, onBack, onToast }) {
+  const myEmpId = employee?.employee_id || employee?.id;
+  const myEmpNo = employee?.emp_id || employee?.emp_no || "";
+  const myName = employee?.name || "";
+  const mySite = employee?.site_code || "";
+
+  // 과거 7일 날짜 배열
+  const dateOptions = useMemo(() => {
+    const arr = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      arr.push(dateStr);
+    }
+    return arr;
+  }, []);
+
+  // 사업장 목록 (본소속 제외)
+  const siteOptions = useMemo(() => {
+    return Object.entries(_siteNamesCache)
+      .filter(([code]) => code !== mySite && code !== "V000")
+      .sort((a, b) => a[0].localeCompare(b[0]));
+  }, [mySite]);
+
+  const [selDate, setSelDate] = useState(dateOptions[0]);
+  const [selSite, setSelSite] = useState("");
+  const [checkIn, setCheckIn] = useState("");
+  const [checkOut, setCheckOut] = useState("");
+  const [memo, setMemo] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [history, setHistory] = useState([]);
+  const [histLoading, setHistLoading] = useState(true);
+
+  // 지원근무 이력 로드
+  const loadHistory = useCallback(async () => {
+    if (!myEmpId) return;
+    setHistLoading(true);
+    try {
+      const { data } = await supabase
+        .from("daily_report_staff").select("*, daily_reports!inner(report_date, site_code)")
+        .eq("employee_id", myEmpId).eq("staff_type", "support")
+        .order("created_at", { ascending: false }).limit(20);
+      setHistory(data || []);
+    } catch (e) { console.error(e); }
+    finally { setHistLoading(false); }
+  }, [myEmpId]);
+
+  useEffect(() => { loadHistory(); }, [loadHistory]);
+
+  async function handleSave() {
+    if (!selSite) { onToast?.("⚠️ 지원 사업장을 선택해주세요"); return; }
+    if (!checkIn) { onToast?.("⚠️ 출근 시간을 입력해주세요"); return; }
+
+    setSaving(true);
+    try {
+      // 1) 해당 날짜/사업장 daily_report 찾기 or 생성
+      let { data: report } = await supabase
+        .from("daily_reports").select("id")
+        .eq("report_date", selDate).eq("site_code", selSite)
+        .maybeSingle();
+
+      if (!report) {
+        // 최소 report 생성 (지원근무 기록용)
+        const { data: newReport, error: re } = await supabase
+          .from("daily_reports").insert({
+            report_date: selDate, site_code: selSite,
+            status: "pending", valet_count: 0, memo: "",
+          }).select("id").single();
+        if (re) throw re;
+        report = newReport;
+      }
+
+      // 2) 중복 체크
+      const { data: existing } = await supabase
+        .from("daily_report_staff").select("id")
+        .eq("report_id", report.id).eq("employee_id", myEmpId)
+        .eq("staff_type", "support").maybeSingle();
+
+      if (existing) {
+        onToast?.("⚠️ 이미 해당 날짜/사업장에 지원근무가 등록되어 있습니다");
+        setSaving(false);
+        return;
+      }
+
+      // 3) 저장
+      const { error: ie } = await supabase.from("daily_report_staff").insert({
+        report_id: report.id,
+        emp_no: myEmpNo,
+        name: myName,
+        employee_id: myEmpId,
+        staff_type: "support",
+        check_in: checkIn || null,
+        check_out: checkOut || null,
+        memo: memo || null,
+      });
+      if (ie) throw ie;
+
+      onToast?.("✅ 지원근무가 등록되었습니다");
+      setCheckIn(""); setCheckOut(""); setMemo(""); setSelSite("");
+      loadHistory();
+    } catch (e) {
+      console.error(e);
+      onToast?.("❌ 저장 실패: " + (e.message || "오류 발생"));
+    } finally { setSaving(false); }
+  }
+
+  async function handleDelete(staffId) {
+    if (!confirm("지원근무 기록을 삭제하시겠습니까?")) return;
+    try {
+      await supabase.from("daily_report_staff").delete().eq("id", staffId);
+      onToast?.("🗑️ 삭제되었습니다");
+      loadHistory();
+    } catch (e) { onToast?.("❌ 삭제 실패"); }
+  }
+
+  const dayLabel = (ds) => {
+    const d = new Date(ds + "T00:00:00");
+    const wd = ["일", "월", "화", "수", "목", "금", "토"][d.getDay()];
+    return `${d.getMonth() + 1}/${d.getDate()}(${wd})`;
+  };
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.lightGray, fontFamily: FONT }}>
+      {/* 헤더 */}
+      <div style={{
+        background: `linear-gradient(135deg, ${C.navy}, ${C.navyLight})`, color: C.white,
+        padding: "16px 20px", paddingTop: "max(16px, env(safe-area-inset-top))",
+        display: "flex", alignItems: "center", gap: 12,
+      }}>
+        <button onClick={onBack} style={{ background: "none", border: "none", color: C.white, fontSize: 20, padding: 0 }}>←</button>
+        <div>
+          <div style={{ fontSize: 17, fontWeight: 900 }}>🔄 지원근무 등록</div>
+          <div style={{ fontSize: 12, opacity: 0.7 }}>{myName} · {getSiteName(mySite)}</div>
+        </div>
+      </div>
+
+      <div style={{ padding: "16px", maxWidth: 500, margin: "0 auto" }}>
+        {/* 날짜 선택 */}
+        <div style={{ background: C.white, borderRadius: 16, padding: 16, marginBottom: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: C.dark, marginBottom: 10 }}>📅 근무일 선택</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {dateOptions.map(ds => (
+              <button key={ds} onClick={() => setSelDate(ds)} style={{
+                padding: "8px 12px", borderRadius: 10, fontSize: 13, fontWeight: selDate === ds ? 800 : 600,
+                border: selDate === ds ? `2px solid ${C.navy}` : `1.5px solid ${C.border}`,
+                background: selDate === ds ? C.navy : C.white,
+                color: selDate === ds ? C.white : C.dark, fontFamily: FONT,
+              }}>
+                {dayLabel(ds)}
+                {ds === dateOptions[0] && <span style={{ fontSize: 10, marginLeft: 2 }}>오늘</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 사업장 선택 */}
+        <div style={{ background: C.white, borderRadius: 16, padding: 16, marginBottom: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: C.dark, marginBottom: 10 }}>🏢 지원 사업장</div>
+          <select value={selSite} onChange={e => setSelSite(e.target.value)} style={{
+            width: "100%", padding: "12px 14px", borderRadius: 12, border: `1.5px solid ${selSite ? C.navy : C.border}`,
+            fontSize: 14, fontFamily: FONT, background: C.white, color: selSite ? C.dark : C.gray,
+            WebkitAppearance: "none", appearance: "none",
+          }}>
+            <option value="">사업장을 선택하세요</option>
+            {siteOptions.map(([code, name]) => (
+              <option key={code} value={code}>{code} {name}</option>
+            ))}
+          </select>
+          <div style={{ fontSize: 11, color: C.gray, marginTop: 6 }}>
+            내 소속 <strong style={{ color: C.navy }}>{getSiteName(mySite)}</strong> 외 사업장만 선택 가능
+          </div>
+        </div>
+
+        {/* 출퇴근 시간 */}
+        <div style={{ background: C.white, borderRadius: 16, padding: 16, marginBottom: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: C.dark, marginBottom: 10 }}>⏰ 출퇴근 시간</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div>
+              <label style={{ fontSize: 12, color: C.gray, fontWeight: 700, display: "block", marginBottom: 4 }}>출근</label>
+              <input type="time" value={checkIn} onChange={e => setCheckIn(e.target.value)} style={{
+                width: "100%", padding: "10px 12px", borderRadius: 10, border: `1.5px solid ${C.border}`,
+                fontSize: 14, fontFamily: FONT,
+              }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 12, color: C.gray, fontWeight: 700, display: "block", marginBottom: 4 }}>퇴근</label>
+              <input type="time" value={checkOut} onChange={e => setCheckOut(e.target.value)} style={{
+                width: "100%", padding: "10px 12px", borderRadius: 10, border: `1.5px solid ${C.border}`,
+                fontSize: 14, fontFamily: FONT,
+              }} />
+            </div>
+          </div>
+        </div>
+
+        {/* 메모 */}
+        <div style={{ background: C.white, borderRadius: 16, padding: 16, marginBottom: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: C.dark, marginBottom: 10 }}>💬 메모 (선택)</div>
+          <textarea value={memo} onChange={e => setMemo(e.target.value)} placeholder="지원 사유를 입력하세요" rows={2} style={{
+            width: "100%", padding: "10px 14px", borderRadius: 12, border: `1.5px solid ${C.border}`,
+            fontSize: 14, fontFamily: FONT, resize: "none", lineHeight: 1.5,
+          }} />
+        </div>
+
+        {/* 저장 버튼 */}
+        <button onClick={handleSave} disabled={saving || !selSite || !checkIn} style={{
+          width: "100%", padding: "16px", borderRadius: 14, border: "none",
+          background: (!selSite || !checkIn) ? C.border : C.orange, color: C.white,
+          fontSize: 16, fontWeight: 900, fontFamily: FONT,
+          opacity: saving ? 0.6 : 1, marginBottom: 24,
+          boxShadow: (selSite && checkIn) ? `0 4px 16px ${C.orange}40` : "none",
+        }}>
+          {saving ? "저장 중..." : "🔄 지원근무 등록"}
+        </button>
+
+        {/* 지원근무 이력 */}
+        <div style={{ background: C.white, borderRadius: 16, padding: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: C.dark, marginBottom: 12 }}>📋 내 지원근무 이력</div>
+          {histLoading ? (
+            <div style={{ textAlign: "center", padding: 20 }}><Spinner /></div>
+          ) : history.length === 0 ? (
+            <div style={{ textAlign: "center", padding: 20, color: C.gray, fontSize: 13 }}>등록된 지원근무가 없습니다</div>
+          ) : (
+            <div style={{ display: "grid", gap: 8 }}>
+              {history.map(h => {
+                const rd = h.daily_reports?.report_date || "";
+                const sc = h.daily_reports?.site_code || "";
+                return (
+                  <div key={h.id} style={{
+                    display: "flex", alignItems: "center", gap: 10, padding: "10px 14px",
+                    borderRadius: 12, border: `1.5px solid ${C.border}`, background: "#FFF8F0",
+                  }}>
+                    <div style={{
+                      width: 6, height: 36, borderRadius: 3, background: C.orange, flexShrink: 0,
+                    }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: C.dark }}>
+                        {formatDate(rd)} · <span style={{ color: C.orange }}>{getSiteName(sc)}</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: C.gray, marginTop: 2 }}>
+                        {h.check_in || "?"} ~ {h.check_out || "?"}
+                        {h.memo && <span> · {h.memo}</span>}
+                      </div>
+                    </div>
+                    <button onClick={() => handleDelete(h.id)} style={{
+                      background: "none", border: "none", fontSize: 16, color: C.red, padding: 4, cursor: "pointer",
+                    }}>🗑️</button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div style={{ height: 40 }} />
       </div>
     </div>
   );
@@ -3309,12 +3582,14 @@ export default function App() {
         <PayslipPage employee={employee} onBack={() => setPage("home")} />
       ) : page === "changepw" ? (
         <ChangePasswordPage employee={employee} onBack={() => setPage("home")} onToast={msg => setToast(msg)} />
+      ) : page === "support" ? (
+        <SupportDutyPage employee={activeEmployee} onBack={() => { setPage("home"); setPageData(null); }} onToast={msg => setToast(typeof msg === "string" ? { message: msg, type: "info" } : msg)} />
       ) : (
         <HomePage employee={activeEmployee} rawEmployee={employee} activeSite={activeSite} onSiteChange={setActiveSite} onChangeSite={() => setAuthState("select_site")} onLogout={handleLogout} onNavigate={handleNavigate} />
       )}
 
       {/* ── 하단 탭 바 ── */}
-      {page !== "form" && page !== "changepw" && (
+      {page !== "form" && page !== "changepw" && page !== "support" && (
         <div style={{
           position: "fixed", bottom: 0, left: 0, right: 0, background: C.white,
           borderTop: `1px solid ${C.border}`, display: "flex", zIndex: 100,
