@@ -2539,15 +2539,16 @@ function SupportDutyPage({ employee, onBack, onToast }) {
 
   // 지원근무 이력 로드
   const loadHistory = useCallback(async () => {
-    if (!myEmpId) return;
+    if (!myEmpId) { setHistLoading(false); return; }
     setHistLoading(true);
     try {
-      const { data } = await supabase
-        .from("daily_report_staff").select("*, daily_reports!inner(report_date, site_code)")
+      const { data, error } = await supabase
+        .from("daily_report_staff").select("*, daily_reports(report_date, site_code)")
         .eq("employee_id", myEmpId).eq("staff_type", "support")
         .order("created_at", { ascending: false }).limit(20);
-      setHistory(data || []);
-    } catch (e) { console.error(e); }
+      if (error) { console.error("이력 로드 오류:", error); setHistory([]); }
+      else setHistory(data || []);
+    } catch (e) { console.error(e); setHistory([]); }
     finally { setHistLoading(false); }
   }, [myEmpId]);
 
@@ -2747,7 +2748,7 @@ function SupportDutyPage({ employee, onBack, onToast }) {
         {/* 메모 */}
         <div style={{ background: C.white, borderRadius: 16, padding: 16, marginBottom: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
           <div style={{ fontSize: 14, fontWeight: 800, color: C.dark, marginBottom: 10 }}>💬 메모 (선택)</div>
-          <textarea value={memo} onChange={e => setMemo(e.target.value)} placeholder="지원 사유를 입력하세요" rows={2} style={{
+          <textarea value={memo} onChange={e => setMemo(e.target.value)} rows={2} style={{
             width: "100%", padding: "10px 14px", borderRadius: 12, border: `1.5px solid ${C.border}`,
             fontSize: 14, fontFamily: FONT, resize: "none", lineHeight: 1.5,
           }} />
