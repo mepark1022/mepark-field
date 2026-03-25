@@ -428,7 +428,7 @@ function LoginPage({ onLogin }) {
                 />
               </div>
               <div style={{ fontSize: 11, color: C.gray, marginTop: 6, textAlign: "center" }}>
-                초기 비밀번호: mp + 전화번호 뒤 4자리
+                초기 비밀번호: 전화번호 뒤 4자리 + 12
               </div>
             </div>
 
@@ -601,7 +601,7 @@ function LoginPage({ onLogin }) {
                     }}
                   />
                   <div style={{ fontSize: 11, color: C.gray, marginTop: 6, textAlign: "center" }}>
-                    초기 비밀번호: mp + 전화번호 뒤 4자리
+                    초기 비밀번호: 전화번호 뒤 4자리 + 12
                   </div>
                 </div>
                 {error && (
@@ -3187,8 +3187,8 @@ function ChangePasswordPage({ employee, onBack, onToast }) {
             </button>
 
             <div style={{ marginTop: 16, padding: "12px 16px", background: "#f0f4ff", borderRadius: 12, fontSize: 12, color: C.gray, lineHeight: 1.6 }}>
-              💡 <strong>초기 비밀번호</strong>: mp + 전화번호 뒤 4자리<br />
-              예) 010-1234-<strong>5678</strong> → <strong>mp5678</strong>
+              💡 <strong>초기 비밀번호</strong>: 전화번호 뒤 4자리 + 12<br />
+              예) 010-1234-<strong>5678</strong> → <strong>567812</strong>
             </div>
           </div>
         )}
