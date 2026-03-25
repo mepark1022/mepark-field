@@ -2592,13 +2592,10 @@ function SupportDutyPage({ employee, onBack, onToast }) {
       // 3) 저장
       const { error: ie } = await supabase.from("daily_report_staff").insert({
         report_id: report.id,
-        emp_no: myEmpNo,
-        name: myName,
         employee_id: myEmpId,
         staff_type: "support",
         check_in: checkIn || null,
         check_out: checkOut || null,
-        memo: memo || null,
       });
       if (ie) throw ie;
 
@@ -2743,15 +2740,6 @@ function SupportDutyPage({ employee, onBack, onToast }) {
               }} />
             </div>
           </div>
-        </div>
-
-        {/* 메모 */}
-        <div style={{ background: C.white, borderRadius: 16, padding: 16, marginBottom: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" }}>
-          <div style={{ fontSize: 14, fontWeight: 800, color: C.dark, marginBottom: 10 }}>💬 메모 (선택)</div>
-          <textarea value={memo} onChange={e => setMemo(e.target.value)} rows={2} style={{
-            width: "100%", padding: "10px 14px", borderRadius: 12, border: `1.5px solid ${C.border}`,
-            fontSize: 14, fontFamily: FONT, resize: "none", lineHeight: 1.5,
-          }} />
         </div>
 
         {/* 저장 버튼 */}
