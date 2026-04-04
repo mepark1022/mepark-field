@@ -2942,12 +2942,12 @@ function PayslipPage({ employee, onBack }) {
             )}
           </div>
 
-          {/* 임금분해 (wage_breakdown) */}
+          {/* 임금상세 (wage_breakdown) */}
           {s.wage_breakdown && (
             <div style={{ background: C.white, borderRadius: 12, padding: "14px 16px", marginBottom: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-              <div style={{ fontSize: 14, fontWeight: 900, color: C.navy, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>📊 임금 구성</div>
+              <div style={{ fontSize: 14, fontWeight: 900, color: C.navy, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>📊 임금상세</div>
 
-              {/* 평일 분해 */}
+              {/* 평일 상세 */}
               {s.wage_breakdown.weekday && (() => {
                 const wd = s.wage_breakdown.weekday;
                 const items = [
@@ -2976,7 +2976,7 @@ function PayslipPage({ employee, onBack }) {
                 );
               })()}
 
-              {/* 주말 분해 */}
+              {/* 주말 상세 */}
               {s.wage_breakdown.weekend && (() => {
                 const we = s.wage_breakdown.weekend;
                 const items = [
