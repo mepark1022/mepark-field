@@ -2854,17 +2854,28 @@ function PayslipPage({ employee, onBack }) {
   // 상세 보기
   if (selectedSlip) {
     const s = selectedSlip;
+    // 근무유형 라벨
+    const workTypeLabel = (wt) => {
+      if (!wt) return "";
+      const WD = ["A","B","C","D","AP","BP","CP","DP"];
+      const WE = ["E","F","G","EP","FP","GP"];
+      const MX = ["AE","CF","CG","CPF","FPG"];
+      if (WD.includes(wt)) return "평일제";
+      if (WE.includes(wt)) return "주말제";
+      if (MX.includes(wt)) return "복합근무";
+      if (wt === "W") return "알바";
+      return wt;
+    };
+
     const payItems = [
       { label: "기본급", value: s.basic_pay },
       { label: "식대", value: s.meal },
       { label: "보육수당", value: s.childcare },
       { label: "자가운전", value: s.car_allow },
       { label: "팀장수당", value: s.team_allow },
-      { label: "명절상여", value: s.holiday_bonus },
       { label: "인센티브", value: s.incentive },
-      { label: "추가근무", value: s.extra_work },
       { label: "수기수당", value: s.manual_write },
-      { label: "기타수당", value: s.extra1 },
+      ...((s.allowances || []).map(a => ({ label: a.label || "추가수당", value: Number(a.amount) || 0 }))),
     ].filter(item => item.value > 0);
 
     const dedItems = [
@@ -2914,7 +2925,94 @@ function PayslipPage({ employee, onBack }) {
               <span style={{ color: C.gray }}>사업장</span>
               <span style={{ fontWeight: 700 }}>{getSiteName(s.site_code)}</span>
             </div>
+            {s.work_type && (
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginTop: 8 }}>
+                <span style={{ color: C.gray }}>근무유형</span>
+                <span style={{ fontWeight: 700 }}>
+                  {workTypeLabel(s.work_type)}
+                  <span style={{ fontSize: 11, color: C.gray, marginLeft: 4 }}>({s.work_type})</span>
+                </span>
+              </div>
+            )}
+            {s.work_days > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginTop: 8 }}>
+                <span style={{ color: C.gray }}>근무일수</span>
+                <span style={{ fontWeight: 700 }}>{s.work_days}일</span>
+              </div>
+            )}
           </div>
+
+          {/* 임금분해 (wage_breakdown) */}
+          {s.wage_breakdown && (
+            <div style={{ background: C.white, borderRadius: 12, padding: "14px 16px", marginBottom: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+              <div style={{ fontSize: 14, fontWeight: 900, color: C.navy, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>📊 임금 구성</div>
+
+              {/* 평일 분해 */}
+              {s.wage_breakdown.weekday && (() => {
+                const wd = s.wage_breakdown.weekday;
+                const items = [
+                  { label: "기본급", value: wd.basic },
+                  { label: "연차수당", value: wd.annual },
+                  { label: "연장수당", value: wd.overtime },
+                  { label: "공휴수당", value: wd.holiday },
+                ].filter(it => it.value > 0);
+                return (
+                  <div style={{ marginBottom: s.wage_breakdown.weekend ? 16 : 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                      <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 6, fontSize: 11, fontWeight: 800, background: "#EEF0FF", color: C.navy }}>평일제</span>
+                      {wd.hourly_rate > 0 && <span style={{ fontSize: 11, color: C.gray }}>시급 {fmtN(wd.hourly_rate)}원</span>}
+                    </div>
+                    {items.map(it => (
+                      <div key={it.label} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${C.lightGray}`, fontSize: 12 }}>
+                        <span style={{ color: C.gray }}>{it.label}</span>
+                        <span style={{ fontWeight: 700, fontFamily: "monospace" }}>{fmtN(it.value)}원</span>
+                      </div>
+                    ))}
+                    <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0 0", fontSize: 13, fontWeight: 900 }}>
+                      <span style={{ color: C.navy }}>월급여</span>
+                      <span style={{ color: C.navy, fontFamily: "monospace" }}>{fmtN(wd.total_pay)}원</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* 주말 분해 */}
+              {s.wage_breakdown.weekend && (() => {
+                const we = s.wage_breakdown.weekend;
+                const items = [
+                  { label: "기본급", value: we.basic },
+                  { label: "연장수당", value: we.overtime },
+                  { label: "주휴수당", value: we.weekly_hol },
+                  { label: "공휴수당", value: we.holiday },
+                ].filter(it => it.value > 0);
+                const totalDaily = we.daily_pay || 0;
+                const wDays = we.work_days || s.work_days || 0;
+                return (
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                      <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 6, fontSize: 11, fontWeight: 800, background: "#FFF5EB", color: C.orange }}>주말제</span>
+                      {we.hourly_rate > 0 && <span style={{ fontSize: 11, color: C.gray }}>시급 {fmtN(we.hourly_rate)}원</span>}
+                    </div>
+                    {items.map(it => (
+                      <div key={it.label} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${C.lightGray}`, fontSize: 12 }}>
+                        <span style={{ color: C.gray }}>{it.label}</span>
+                        <span style={{ fontWeight: 700, fontFamily: "monospace" }}>{fmtN(it.value)}원</span>
+                      </div>
+                    ))}
+                    <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0 0", fontSize: 13, fontWeight: 900 }}>
+                      <span style={{ color: C.orange }}>일당</span>
+                      <span style={{ color: C.orange, fontFamily: "monospace" }}>{fmtN(totalDaily)}원</span>
+                    </div>
+                    {wDays > 0 && (
+                      <div style={{ marginTop: 8, padding: "8px 10px", background: "#FFF8F0", borderRadius: 8, fontSize: 12, color: C.orange, fontWeight: 700, textAlign: "center" }}>
+                        {fmtN(totalDaily)}원 × {wDays}일 = {fmtN(totalDaily * wDays)}원
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          )}
 
           {/* 지급 항목 */}
           <div style={{ background: C.white, borderRadius: 12, padding: "14px 16px", marginBottom: 12, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
