@@ -2534,11 +2534,31 @@ function SupportDutyPage({ employee, onBack, onToast }) {
     return set;
   }, []);
 
-  // 사업장 목록 (본소속 제외)
-  const siteOptions = useMemo(() => {
-    return Object.entries(_siteNamesCache)
-      .filter(([code]) => code !== mySite && code !== "V000")
-      .sort((a, b) => a[0].localeCompare(b[0]));
+  // 사업장 목록 (DB에서 직접 로드 — 커스텀 사업장 포함)
+  const [siteOptions, setSiteOptions] = useState([]);
+  useEffect(() => {
+    async function loadSites() {
+      try {
+        const { data } = await supabase
+          .from("site_details")
+          .select("site_code, site_name");
+        const dbMap = {};
+        (data || []).forEach(r => { if (r.site_name && r.site_name !== "__HIDDEN__") dbMap[r.site_code] = r.site_name; });
+        const merged = { ...SITES_DEFAULT, ...dbMap };
+        // __HIDDEN__ 제거
+        Object.keys(merged).forEach(k => { if (dbMap[k] === undefined && !SITES_DEFAULT[k]) delete merged[k]; });
+        const opts = Object.entries(merged)
+          .filter(([code]) => code !== mySite && code !== "V000")
+          .sort((a, b) => a[0].localeCompare(b[0]));
+        setSiteOptions(opts);
+      } catch (_) {
+        // fallback
+        setSiteOptions(Object.entries(_siteNamesCache)
+          .filter(([code]) => code !== mySite && code !== "V000")
+          .sort((a, b) => a[0].localeCompare(b[0])));
+      }
+    }
+    loadSites();
   }, [mySite]);
 
   const [selDate, setSelDate] = useState(() => {
